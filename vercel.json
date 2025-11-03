@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/check-expiry",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/check-low-stock",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}
+
