@@ -113,10 +113,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Create transaction record for return
+      // Both sourceWarehouseId and destinationWarehouseId are required
       const transaction = await tx.transaction.create({
         data: {
           productId,
-          destinationWarehouseId: warehouseId,
+          sourceWarehouseId: warehouseId, // Source is the warehouse receiving the return
+          destinationWarehouseId: warehouseId, // Destination is same warehouse (return comes back to warehouse)
           quantity,
           type: TransactionType.RETURN,
           userId: currentUserId,

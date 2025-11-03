@@ -16,22 +16,41 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const warehouseId = searchParams.get('warehouseId')
     const productId = searchParams.get('productId')
+    const search = searchParams.get('search')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const skip = (page - 1) * limit
 
-    const inventory = await prisma.inventory.findMany({
-      where: {
-        ...(warehouseId && { warehouseId }),
-        ...(productId && { productId }),
-      },
-      include: {
-        product: {
-          include: {
-            productSettings: true,
+    // Build where clause
+    const where: any = {}
+    if (warehouseId) where.warehouseId = warehouseId
+    if (productId) where.productId = productId
+    if (search) {
+      where.product = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { sku: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    }
+
+    const [inventory, total] = await Promise.all([
+      prisma.inventory.findMany({
+        where,
+        include: {
+          product: {
+            include: {
+              productSettings: true,
+            },
           },
+          warehouse: true,
         },
-        warehouse: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    })
+        orderBy: { updatedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.inventory.count({ where }),
+    ])
 
     // Calculate global totals for each product
     const globalTotals = await prisma.inventory.groupBy({
@@ -49,7 +68,13 @@ export async function GET(request: NextRequest) {
       globalTotal: totalsMap.get(inv.productId) || 0,
     }))
 
-    return NextResponse.json(inventoryWithTotals)
+    return NextResponse.json({
+      inventory: inventoryWithTotals,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch inventory' },
@@ -253,11 +278,15 @@ export async function POST(request: NextRequest) {
       }
 
       // Create transaction record with user tracking
+      // Both sourceWarehouseId and destinationWarehouseId are required (mandatory)
       const transaction = await tx.transaction.create({
         data: {
           productId,
-          sourceWarehouseId: type === TransactionType.OUT ? warehouseId : undefined,
-          destinationWarehouseId: type === TransactionType.IN ? warehouseId : undefined,
+          // For IN: source is the warehouse receiving (items come from external), destination is the warehouse
+          // For OUT: source is the warehouse (items leave from), destination is the warehouse (items go to external)
+          // Both fields are set to warehouseId to ensure both are always populated
+          sourceWarehouseId: warehouseId,
+          destinationWarehouseId: warehouseId,
           quantity,
           type,
           userId: transactionUserId,

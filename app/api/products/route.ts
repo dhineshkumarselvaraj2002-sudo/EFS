@@ -12,21 +12,46 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const category = searchParams.get('category')
+    const search = searchParams.get('search')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const skip = (page - 1) * limit
 
-    const products = await prisma.product.findMany({
-      where: category ? { category } : undefined,
-      include: {
-        productSettings: true,
-        _count: {
-          select: {
-            inventory: true,
+    // Build where clause
+    const where: any = {}
+    if (category) where.category = category
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: {
+          productSettings: true,
+          _count: {
+            select: {
+              inventory: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.product.count({ where }),
+    ])
 
-    return NextResponse.json(products)
+    return NextResponse.json({
+      products,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch products' },

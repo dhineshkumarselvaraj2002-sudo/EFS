@@ -3,32 +3,64 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const warehouses = await prisma.warehouse.findMany({
-      include: {
-        _count: {
-          select: {
-            inventory: true,
-            children: true,
-          },
-        },
-        parent: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+    const searchParams = request.nextUrl.searchParams
+    const search = searchParams.get('search')
+    const type = searchParams.get('type')
+    const status = searchParams.get('status')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const skip = (page - 1) * limit
 
-    return NextResponse.json(warehouses)
+    // Build where clause
+    const where: any = {}
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { location: { contains: search, mode: 'insensitive' } },
+        { type: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+    if (type && type !== 'all') where.type = type
+    if (status && status !== 'all') where.status = status
+
+    const [warehouses, total] = await Promise.all([
+      prisma.warehouse.findMany({
+        where,
+        include: {
+          _count: {
+            select: {
+              inventory: true,
+              children: true,
+            },
+          },
+          parent: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.warehouse.count({ where }),
+    ])
+
+    return NextResponse.json({
+      warehouses,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch warehouses' },

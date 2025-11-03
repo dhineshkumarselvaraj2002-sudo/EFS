@@ -13,16 +13,50 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
+    const search = searchParams.get('search')
+    const productId = searchParams.get('productId')
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const skip = (page - 1) * limit
 
-    const alerts = await prisma.alert.findMany({
-      where: status ? { status: status as AlertStatus } : undefined,
-      include: {
-        product: true,
-      },
-      orderBy: { createdAt: 'desc' },
+    // Build where clause
+    const where: any = {}
+    if (status) where.status = status as AlertStatus
+    if (productId) where.productId = productId
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) where.createdAt.lte = new Date(dateTo)
+    }
+    if (search) {
+      where.OR = [
+        { product: { name: { contains: search, mode: 'insensitive' } } },
+        { message: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+
+    const [alerts, total] = await Promise.all([
+      prisma.alert.findMany({
+        where,
+        include: {
+          product: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.alert.count({ where }),
+    ])
+
+    return NextResponse.json({
+      alerts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     })
-
-    return NextResponse.json(alerts)
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch alerts' },

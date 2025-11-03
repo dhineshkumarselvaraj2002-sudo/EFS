@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/lib/hooks/use-products'
+import { useCreateProduct, useUpdateProduct, useDeleteProduct } from '@/lib/hooks/use-products'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -27,7 +27,7 @@ import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, Pencil, Trash2, PackageSearch } from 'lucide-react'
+import { Plus, Pencil, Trash2, PackageSearch, Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast as sonnerToast } from 'sonner'
 import {
@@ -77,7 +77,27 @@ export default function ProductsPage() {
   const [filters, setFilters] = useState<Record<string, any>>({})
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
-  const { data: products, isLoading } = useProducts()
+  
+  // Server-side pagination
+  const { data: productsData, isLoading } = useQuery({
+    queryKey: ['products', currentPage, filters],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.category) params.append('category', filters.category)
+      
+      const res = await fetch(`/api/products?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to fetch products')
+      return res.json()
+    },
+  })
+  
+  const products = productsData?.products || []
+  const totalPages = productsData?.totalPages || 0
+  const total = productsData?.total || 0
   const createProduct = useCreateProduct()
   const updateProduct = useUpdateProduct()
   const deleteProduct = useDeleteProduct()
@@ -85,23 +105,27 @@ export default function ProductsPage() {
 
   const queryClient = useQueryClient()
 
-  const { data: inventory } = useQuery({
+  const { data: inventoryData } = useQuery({
     queryKey: ['inventory'],
     queryFn: async () => {
-      const res = await fetch('/api/inventory')
-      if (!res.ok) return []
+      const res = await fetch('/api/inventory?limit=10000')
+      if (!res.ok) return { inventory: [] }
       return res.json()
     },
   })
 
-  const { data: warehouses } = useQuery({
+  const { data: warehousesData } = useQuery({
     queryKey: ['warehouses'],
     queryFn: async () => {
-      const res = await fetch('/api/warehouses')
-      if (!res.ok) return []
+      const res = await fetch('/api/warehouses?limit=1000')
+      if (!res.ok) return { warehouses: [] }
       return res.json()
     },
   })
+
+  // Extract arrays from paginated responses (handle both old array format and new object format)
+  const inventory = Array.isArray(inventoryData) ? inventoryData : (inventoryData?.inventory || [])
+  const warehouses = Array.isArray(warehousesData) ? warehousesData : (warehousesData?.warehouses || [])
 
   const {
     register,
@@ -223,11 +247,21 @@ export default function ProductsPage() {
     }
   }
 
+  // Fetch all categories separately for filter options
+  const { data: allProductsData } = useQuery({
+    queryKey: ['products-all-categories'],
+    queryFn: async () => {
+      const res = await fetch('/api/products?limit=1000')
+      if (!res.ok) return { products: [] }
+      return res.json()
+    },
+  })
+  
   const categories = useMemo(() => {
     const cats = new Set<string>()
-    products?.forEach((p: any) => cats.add(p.category))
+    allProductsData?.products?.forEach((p: any) => cats.add(p.category))
     return Array.from(cats).sort()
-  }, [products])
+  }, [allProductsData])
 
   const filterOptions: FilterOption[] = useMemo(() => [
     {
@@ -260,24 +294,7 @@ export default function ProductsPage() {
     })
   }, [products, inventory])
 
-  const filteredProducts = useMemo(() => {
-    if (!productsWithStock) return []
-    return productsWithStock.filter((p: any) => {
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        if (!p.name?.toLowerCase().includes(searchLower) && !p.sku?.toLowerCase().includes(searchLower)) {
-          return false
-        }
-      }
-      if (filters.category && p.category !== filters.category) return false
-      return true
-    })
-  }, [productsWithStock, filters])
-
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedProducts = filteredProducts.slice(startIndex, endIndex)
+  const paginatedProducts = productsWithStock
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -418,7 +435,7 @@ export default function ProductsPage() {
           onClear={() => setFilters({})}
         />
         <div className="text-base text-muted-foreground">
-          {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'}
+          {total} {total === 1 ? 'product' : 'products'}
         </div>
       </div>
 
@@ -426,7 +443,7 @@ export default function ProductsPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <TableSkeleton rows={8} cols={7} />
-          ) : filteredProducts.length === 0 ? (
+          ) : paginatedProducts.length === 0 ? (
             <div className="p-12">
               <Empty>
                 <EmptyHeader>
@@ -515,10 +532,10 @@ export default function ProductsPage() {
         </CardContent>
       </Card>
 
-      {filteredProducts.length > 0 && totalPages > 1 && (
+      {total > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-base text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredProducts.length)} of {filteredProducts.length} products
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} products
           </div>
           <Pagination>
             <PaginationContent>

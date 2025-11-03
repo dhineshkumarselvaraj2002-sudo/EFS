@@ -21,6 +21,7 @@ export async function PUT(
       where: { id: params.id },
       include: {
         product: true,
+        supplier: true,
       },
     })
 
@@ -30,6 +31,20 @@ export async function PUT(
 
     // If status is RECEIVED, update inventory
     if (status === PurchaseOrderStatus.RECEIVED && warehouseId) {
+      // Get the current user ID from database
+      let currentUserId: string | null = null
+      if (session.user?.email) {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: session.user.email },
+        })
+        currentUserId = dbUser?.id || null
+      } else if (session.user?.id) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: session.user.id },
+        })
+        currentUserId = dbUser?.id || null
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         // Update purchase order status
         await tx.purchaseOrder.update({
@@ -94,13 +109,16 @@ export async function PUT(
           })
         }
 
-        // Create transaction
+        // Create transaction with supplier and warehouse info
         await tx.transaction.create({
           data: {
             productId: purchaseOrder.productId,
+            sourceWarehouseId: warehouseId, // Set both to warehouseId (mandatory)
             destinationWarehouseId: warehouseId,
             quantity: purchaseOrder.quantity,
             type: TransactionType.IN,
+            userId: currentUserId,
+            reason: `Stock In from ${purchaseOrder.supplier.name}`,
           },
         })
 

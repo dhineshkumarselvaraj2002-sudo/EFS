@@ -72,23 +72,41 @@ export default function PurchaseOrdersPage() {
   const itemsPerPage = 10
   const queryClient = useQueryClient()
 
-  const { data: orders, isLoading } = useQuery({
-    queryKey: ['purchase-orders'],
+  // Server-side pagination
+  const { data: ordersData, isLoading } = useQuery({
+    queryKey: ['purchase-orders', currentPage, filters],
     queryFn: async () => {
-      const res = await fetch('/api/purchase-orders')
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.status) params.append('status', filters.status)
+      if (filters.supplierId) params.append('supplierId', filters.supplierId)
+      if (filters.dateRange_from) params.append('dateFrom', filters.dateRange_from)
+      if (filters.dateRange_to) params.append('dateTo', filters.dateRange_to)
+      
+      const res = await fetch(`/api/purchase-orders?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch purchase orders')
       return res.json()
     },
   })
 
-  const { data: products } = useQuery({
+  const orders = ordersData?.purchaseOrders || []
+  const totalPages = ordersData?.totalPages || 0
+  const total = ordersData?.total || 0
+
+  const { data: productsData } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const res = await fetch('/api/products')
+      const res = await fetch('/api/products?limit=1000')
       if (!res.ok) throw new Error('Failed to fetch products')
       return res.json()
     },
   })
+
+  // Extract array from paginated response (handle both old array format and new object format)
+  const products = Array.isArray(productsData) ? productsData : (productsData?.products || [])
 
   const {
     register,
@@ -341,35 +359,7 @@ export default function PurchaseOrdersPage() {
     },
   ], [])
 
-  const filteredOrders = useMemo(() => {
-    if (!orders) return []
-    return orders.filter((order: any) => {
-      // Search filter
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        const matchesSupplier = order.supplier?.name?.toLowerCase().includes(searchLower)
-        const matchesProduct = order.product?.name?.toLowerCase().includes(searchLower)
-        const matchesStatus = order.status?.toLowerCase().includes(searchLower)
-        if (!matchesSupplier && !matchesProduct && !matchesStatus) {
-          return false
-        }
-      }
-
-      if (filters.status && order.status !== filters.status) return false
-      if (filters.supplierId && order.supplierId !== filters.supplierId) return false
-      if (filters.dateRange_from || filters.dateRange_to) {
-        const orderDate = new Date(order.createdAt).toISOString().split('T')[0]
-        if (filters.dateRange_from && orderDate < filters.dateRange_from) return false
-        if (filters.dateRange_to && orderDate > filters.dateRange_to) return false
-      }
-      return true
-    })
-  }, [orders, filters])
-
-  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedOrders = filteredOrders.slice(startIndex, endIndex)
+  const paginatedOrders = orders
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -480,7 +470,7 @@ export default function PurchaseOrdersPage() {
           onClear={() => setFilters({})}
         />
         <div className="text-base text-muted-foreground">
-          {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'}
+          {total} {total === 1 ? 'order' : 'orders'}
         </div>
       </div>
 
@@ -565,7 +555,7 @@ export default function PurchaseOrdersPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <TableSkeleton rows={8} cols={8} />
-          ) : filteredOrders.length === 0 ? (
+          ) : paginatedOrders.length === 0 ? (
             <div className="p-12">
               <Empty>
                 <EmptyHeader>
@@ -620,29 +610,33 @@ export default function PurchaseOrdersPage() {
                       </TableCell>
                       <TableCell className="py-4 px-4">{getStatusBadge(order.status)}</TableCell>
                       <TableCell className="py-4 px-4">
-                        <div className="flex gap-2">
-                          {order.status === 'PENDING' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleApprove(order)}
-                              disabled={updatePOStatus.isPending}
-                            >
-                              <Send className="mr-2 h-4 w-4" />
-                              Approve
-                            </Button>
-                          )}
-                          {order.status !== 'RECEIVED' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleReceive(order)}
-                            >
-                              <CheckCircle className="mr-2 h-4 w-4" />
-                              Receive
-                            </Button>
-                          )}
-                        </div>
+                        {order.status === 'RECEIVED' ? (
+                          <span className="text-muted-foreground">-</span>
+                        ) : (
+                          <div className="flex gap-2">
+                            {order.status === 'PENDING' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleApprove(order)}
+                                disabled={updatePOStatus.isPending}
+                              >
+                                <Send className="mr-2 h-4 w-4" />
+                                Approve
+                              </Button>
+                            )}
+                            {order.status !== 'RECEIVED' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleReceive(order)}
+                              >
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Receive
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -653,10 +647,10 @@ export default function PurchaseOrdersPage() {
         </CardContent>
       </Card>
 
-      {filteredOrders.length > 0 && totalPages > 1 && (
+      {total > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-base text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredOrders.length)} of {filteredOrders.length} orders
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} orders
           </div>
           <Pagination>
             <PaginationContent>

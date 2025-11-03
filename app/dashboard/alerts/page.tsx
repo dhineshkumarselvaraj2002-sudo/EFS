@@ -47,23 +47,56 @@ export default function AlertsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  const { data: alerts, isLoading: alertsLoading, error: alertsError } = useQuery({
-    queryKey: ['alerts'],
+  // Server-side pagination for stock alerts
+  const { data: alertsData, isLoading: alertsLoading, error: alertsError } = useQuery({
+    queryKey: ['alerts', currentPage, filters, activeTab],
     queryFn: async () => {
-      const res = await fetch('/api/alerts')
+      if (activeTab !== 'stock') return { alerts: [], total: 0, totalPages: 0 }
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.status) params.append('status', filters.status)
+      if (filters.productId) params.append('productId', filters.productId)
+      if (filters.dateRange_from) params.append('dateFrom', filters.dateRange_from)
+      if (filters.dateRange_to) params.append('dateTo', filters.dateRange_to)
+      
+      const res = await fetch(`/api/alerts?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch alerts')
       return res.json()
     },
   })
 
-  const { data: expiryAlerts, isLoading: expiryLoading, error: expiryError } = useQuery({
-    queryKey: ['expiry-alerts'],
+  // Server-side pagination for expiry alerts
+  const { data: expiryAlertsData, isLoading: expiryLoading, error: expiryError } = useQuery({
+    queryKey: ['expiry-alerts', currentPage, filters, activeTab],
     queryFn: async () => {
-      const res = await fetch('/api/expiry-alerts')
+      if (activeTab !== 'expiry') return { expiryAlerts: [], total: 0, totalPages: 0 }
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.status) params.append('status', filters.status)
+      if (filters.productId) params.append('productId', filters.productId)
+      if (filters.dateRange_from) params.append('dateFrom', filters.dateRange_from)
+      if (filters.dateRange_to) params.append('dateTo', filters.dateRange_to)
+      
+      const res = await fetch(`/api/expiry-alerts?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch expiry alerts')
       return res.json()
     },
   })
+
+  const alerts = alertsData?.alerts || []
+  const expiryAlerts = expiryAlertsData?.expiryAlerts || []
+  const totalPages = activeTab === 'stock' 
+    ? (alertsData?.totalPages || 0) 
+    : (expiryAlertsData?.totalPages || 0)
+  const total = activeTab === 'stock'
+    ? (alertsData?.total || 0)
+    : (expiryAlertsData?.total || 0)
 
   const markAsRead = useMutation({
     mutationFn: async ({ id, type }: { id: string; type: 'stock' | 'expiry' }) => {
@@ -117,6 +150,15 @@ export default function AlertsPage() {
     markAsRead.mutate({ id, type })
   }
 
+  const { data: products } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const res = await fetch('/api/products')
+      if (!res.ok) return []
+      return res.json()
+    },
+  })
+
   const filterOptions: FilterOption[] = useMemo(() => [
     {
       key: 'search',
@@ -133,45 +175,20 @@ export default function AlertsPage() {
         { label: 'Read', value: 'READ' },
       ],
     },
-  ], [])
+    {
+      key: 'productId',
+      label: 'Product',
+      type: 'select',
+      options: products?.map((p: any) => ({ label: p.name, value: p.id })) || [],
+    },
+    {
+      key: 'dateRange',
+      label: 'Date Range',
+      type: 'dateRange',
+    },
+  ], [products])
 
-  const filteredAlerts = useMemo(() => {
-    if (activeTab === 'stock') {
-      if (!alerts) return []
-      return alerts.filter((alert: any) => {
-        // Search filter
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase()
-          const matchesProduct = alert.product?.name?.toLowerCase().includes(searchLower)
-          const matchesMessage = alert.message?.toLowerCase().includes(searchLower)
-          if (!matchesProduct && !matchesMessage) return false
-        }
-        // Status filter
-        if (filters.status && alert.status !== filters.status) return false
-        return true
-      })
-    } else {
-      if (!expiryAlerts) return []
-      return expiryAlerts.filter((alert: any) => {
-        // Search filter
-        if (filters.search) {
-          const searchLower = filters.search.toLowerCase()
-          const matchesProduct = alert.batch?.product?.name?.toLowerCase().includes(searchLower)
-          const matchesBatch = alert.batch?.batchNumber?.toLowerCase().includes(searchLower)
-          const matchesMessage = alert.message?.toLowerCase().includes(searchLower)
-          if (!matchesProduct && !matchesBatch && !matchesMessage) return false
-        }
-        // Status filter
-        if (filters.status && alert.status !== filters.status) return false
-        return true
-      })
-    }
-  }, [alerts, expiryAlerts, filters, activeTab])
-
-  const totalPages = Math.ceil(filteredAlerts.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedAlerts = filteredAlerts.slice(startIndex, endIndex)
+  const paginatedAlerts = activeTab === 'stock' ? alerts : expiryAlerts
 
   // Reset to page 1 when filters or tab change
   useEffect(() => {
@@ -197,12 +214,19 @@ export default function AlertsPage() {
         </Button>
       </div>
 
-      <DataTableFilters
-        filters={filterOptions}
-        values={filters}
-        onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
-        onClear={() => setFilters({})}
-      />
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 w-full">
+        <div className="w-full sm:w-auto">
+          <DataTableFilters
+            filters={filterOptions}
+            values={filters}
+            onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
+            onClear={() => setFilters({})}
+          />
+        </div>
+        <div className="text-base text-muted-foreground whitespace-nowrap">
+          {total} {total === 1 ? 'alert' : 'alerts'}
+        </div>
+      </div>
 
       {/* Error alerts */}
       {alertsError && (
@@ -236,7 +260,7 @@ export default function AlertsPage() {
             <CardContent className="p-0">
               {alertsLoading ? (
                 <TableSkeleton rows={8} cols={5} />
-              ) : filteredAlerts.length === 0 ? (
+              ) : paginatedAlerts.length === 0 ? (
                 <div className="p-12">
                   <Empty>
                     <EmptyHeader>
@@ -306,7 +330,7 @@ export default function AlertsPage() {
             <CardContent className="p-0">
               {expiryLoading ? (
                 <TableSkeleton rows={8} cols={5} />
-              ) : filteredAlerts.length === 0 ? (
+              ) : paginatedAlerts.length === 0 ? (
                 <div className="p-12">
                   <Empty>
                     <EmptyHeader>
@@ -372,10 +396,10 @@ export default function AlertsPage() {
             </CardContent>
           </Card>
 
-          {filteredAlerts.length > 0 && totalPages > 1 && (
+          {total > 0 && totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <div className="text-base text-muted-foreground">
-                Showing {startIndex + 1} to {Math.min(endIndex, filteredAlerts.length)} of {filteredAlerts.length} alerts
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} alerts
               </div>
               <Pagination>
                 <PaginationContent>

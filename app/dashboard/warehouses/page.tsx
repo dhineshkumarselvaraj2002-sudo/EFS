@@ -74,14 +74,27 @@ export default function WarehousesPage() {
   const itemsPerPage = 10
   const queryClient = useQueryClient()
 
-  const { data: warehouses, isLoading } = useQuery({
-    queryKey: ['warehouses'],
+  // Server-side pagination
+  const { data: warehousesData, isLoading } = useQuery({
+    queryKey: ['warehouses', currentPage, filters],
     queryFn: async () => {
-      const res = await fetch('/api/warehouses')
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.type) params.append('type', filters.type)
+      if (filters.status) params.append('status', filters.status)
+      
+      const res = await fetch(`/api/warehouses?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch warehouses')
       return res.json()
     },
   })
+
+  const warehouses = warehousesData?.warehouses || []
+  const totalPages = warehousesData?.totalPages || 0
+  const total = warehousesData?.total || 0
 
   const createWarehouse = useMutation({
     mutationFn: async (data: WarehouseForm) => {
@@ -202,31 +215,7 @@ export default function WarehousesPage() {
     },
   ], [])
 
-  const filteredWarehouses = useMemo(() => {
-    if (!warehouses) return []
-    return warehouses.filter((w: any) => {
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        if (!w.name?.toLowerCase().includes(searchLower) &&
-            !w.location?.toLowerCase().includes(searchLower) &&
-            !w.type?.toLowerCase().includes(searchLower)) {
-          return false
-        }
-      }
-      if (filters.type && filters.type !== 'all' && w.type !== filters.type) {
-        return false
-      }
-      if (filters.status && filters.status !== 'all' && w.status !== filters.status) {
-        return false
-      }
-      return true
-    })
-  }, [warehouses, filters])
-
-  const totalPages = Math.ceil(filteredWarehouses.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedWarehouses = filteredWarehouses.slice(startIndex, endIndex)
+  const paginatedWarehouses = warehouses
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -356,7 +345,7 @@ export default function WarehousesPage() {
           onClear={() => setFilters({})}
         />
         <div className="text-base text-muted-foreground">
-          {filteredWarehouses.length} {filteredWarehouses.length === 1 ? 'warehouse' : 'warehouses'}
+          {total} {total === 1 ? 'warehouse' : 'warehouses'}
         </div>
       </div>
 
@@ -364,7 +353,7 @@ export default function WarehousesPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <TableSkeleton rows={8} cols={7} />
-          ) : filteredWarehouses.length === 0 ? (
+          ) : paginatedWarehouses.length === 0 ? (
             <div className="p-12">
               <Empty>
                 <EmptyHeader>
@@ -469,10 +458,10 @@ export default function WarehousesPage() {
         </CardContent>
       </Card>
 
-      {filteredWarehouses.length > 0 && totalPages > 1 && (
+      {total > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-base text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredWarehouses.length)} of {filteredWarehouses.length} warehouses
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} warehouses
           </div>
           <Pagination>
             <PaginationContent>

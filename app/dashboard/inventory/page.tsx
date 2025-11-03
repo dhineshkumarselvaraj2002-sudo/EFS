@@ -166,33 +166,50 @@ export default function InventoryPage() {
   const itemsPerPage = 10
   const queryClient = useQueryClient()
 
-  const { data: inventory, isLoading } = useQuery({
-    queryKey: ['inventory'],
+  // Server-side pagination
+  const { data: inventoryData, isLoading } = useQuery({
+    queryKey: ['inventory', currentPage, filters],
     queryFn: async () => {
-      const res = await fetch('/api/inventory')
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.productId) params.append('productId', filters.productId)
+      if (filters.warehouseId) params.append('warehouseId', filters.warehouseId)
+      
+      const res = await fetch(`/api/inventory?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch inventory')
       return res.json()
     },
     refetchInterval: 30000, // Refetch every 30 seconds for real-time updates
   })
 
-  const { data: products } = useQuery({
+  const inventory = inventoryData?.inventory || []
+  const totalPages = inventoryData?.totalPages || 0
+  const total = inventoryData?.total || 0
+
+  const { data: productsData } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const res = await fetch('/api/products')
+      const res = await fetch('/api/products?limit=1000')
       if (!res.ok) throw new Error('Failed to fetch products')
       return res.json()
     },
   })
 
-  const { data: warehouses } = useQuery({
+  const { data: warehousesData } = useQuery({
     queryKey: ['warehouses'],
     queryFn: async () => {
-      const res = await fetch('/api/warehouses')
+      const res = await fetch('/api/warehouses?limit=1000')
       if (!res.ok) throw new Error('Failed to fetch warehouses')
       return res.json()
     },
   })
+
+  // Extract arrays from paginated responses (handle both old array format and new object format)
+  const products = Array.isArray(productsData) ? productsData : (productsData?.products || [])
+  const warehouses = Array.isArray(warehousesData) ? warehousesData : (warehousesData?.warehouses || [])
 
   const updateStock = useMutation({
     mutationFn: async (data: any) => {
@@ -403,41 +420,23 @@ export default function InventoryPage() {
     },
   ], [products, warehouses])
 
+  // Client-side status filter for low stock (can't be done server-side easily)
   const filteredInventory = useMemo(() => {
     if (!inventory) return []
     
     return inventory.filter((inv: any) => {
-      // Search filter
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        const matchesName = inv.product?.name?.toLowerCase().includes(searchLower)
-        const matchesSku = inv.product?.sku?.toLowerCase().includes(searchLower)
-        const matchesWarehouse = inv.warehouse?.name?.toLowerCase().includes(searchLower)
-        if (!matchesName && !matchesSku && !matchesWarehouse) return false
-      }
-
-      // Product filter
-      if (filters.productId && inv.productId !== filters.productId) return false
-
-      // Warehouse filter
-      if (filters.warehouseId && inv.warehouseId !== filters.warehouseId) return false
-
-      // Status filter
+      // Status filter (low stock check)
       if (filters.status && filters.status !== 'all') {
         const minLevel = inv.product?.productSettings?.minStockLevel || 0
         const isLowStock = inv.quantity < minLevel && minLevel > 0
         if (filters.status === 'low' && !isLowStock) return false
         if (filters.status === 'ok' && isLowStock) return false
       }
-
       return true
     })
   }, [inventory, filters])
 
-  const totalPages = Math.ceil(filteredInventory.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedInventory = filteredInventory.slice(startIndex, endIndex)
+  const paginatedInventory = filteredInventory
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -828,7 +827,7 @@ export default function InventoryPage() {
           />
         </div>
         <div className="text-base text-muted-foreground whitespace-nowrap">
-          {filteredInventory.length} {filteredInventory.length === 1 ? 'item' : 'items'}
+          {total} {total === 1 ? 'item' : 'items'}
         </div>
       </div>
 
@@ -836,7 +835,7 @@ export default function InventoryPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <TableSkeleton rows={8} cols={8} />
-          ) : filteredInventory.length === 0 ? (
+          ) : paginatedInventory.length === 0 ? (
             <div className="p-12">
               <Empty>
                 <EmptyHeader>
@@ -894,10 +893,10 @@ export default function InventoryPage() {
         </CardContent>
       </Card>
 
-      {filteredInventory.length > 0 && totalPages > 1 && (
+      {total > 0 && totalPages > 1 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 w-full">
           <div className="text-base text-muted-foreground whitespace-nowrap">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredInventory.length)} of {filteredInventory.length} items
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} items
           </div>
           <Pagination>
             <PaginationContent>

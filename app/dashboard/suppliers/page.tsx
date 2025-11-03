@@ -88,23 +88,40 @@ export default function SuppliersPage() {
   const itemsPerPage = 10
   const queryClient = useQueryClient()
 
-  const { data: suppliers, isLoading } = useQuery({
-    queryKey: ['suppliers'],
+  // Server-side pagination
+  const { data: suppliersData, isLoading } = useQuery({
+    queryKey: ['suppliers', currentPage, filters],
     queryFn: async () => {
-      const res = await fetch('/api/suppliers')
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: itemsPerPage.toString(),
+      })
+      if (filters.search) params.append('search', filters.search)
+      if (filters.productId) params.append('productId', filters.productId)
+      if (filters.dateRange_from) params.append('dateFrom', filters.dateRange_from)
+      if (filters.dateRange_to) params.append('dateTo', filters.dateRange_to)
+      
+      const res = await fetch(`/api/suppliers?${params.toString()}`)
       if (!res.ok) throw new Error('Failed to fetch suppliers')
       return res.json()
     },
   })
 
-  const { data: products } = useQuery({
-    queryKey: ['products'],
+  const suppliers = suppliersData?.suppliers || []
+  const totalPages = suppliersData?.totalPages || 0
+  const total = suppliersData?.total || 0
+
+  // Fetch all products for filter dropdown (not paginated)
+  const { data: productsData } = useQuery({
+    queryKey: ['products-all'],
     queryFn: async () => {
-      const res = await fetch('/api/products')
-      if (!res.ok) throw new Error('Failed to fetch products')
+      const res = await fetch('/api/products?limit=1000')
+      if (!res.ok) return { products: [] }
       return res.json()
     },
   })
+  
+  const products = productsData?.products || []
 
   const createSupplier = useMutation({
     mutationFn: async (data: any) => {
@@ -254,30 +271,20 @@ export default function SuppliersPage() {
       type: 'search',
       placeholder: 'Search suppliers by name, contact, email, phone...',
     },
-  ], [])
+    {
+      key: 'productId',
+      label: 'Product',
+      type: 'select',
+      options: products?.map((p: any) => ({ label: p.name, value: p.id })) || [],
+    },
+    {
+      key: 'dateRange',
+      label: 'Date Range',
+      type: 'dateRange',
+    },
+  ], [products])
 
-  const filteredSuppliers = useMemo(() => {
-    if (!suppliers) return []
-    return suppliers.filter((s: any) => {
-      // Search filter
-      if (filters.search) {
-        const searchLower = filters.search.toLowerCase()
-        if (!s.name?.toLowerCase().includes(searchLower) &&
-            !s.contactPerson?.toLowerCase().includes(searchLower) &&
-            !s.email?.toLowerCase().includes(searchLower) &&
-            !s.phone?.toLowerCase().includes(searchLower) &&
-            !s.address?.toLowerCase().includes(searchLower)) {
-          return false
-        }
-      }
-      return true
-    })
-  }, [suppliers, filters])
-
-  const totalPages = Math.ceil(filteredSuppliers.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedSuppliers = filteredSuppliers.slice(startIndex, endIndex)
+  const paginatedSuppliers = suppliers
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -363,7 +370,7 @@ export default function SuppliersPage() {
           onClear={() => setFilters({})}
         />
         <div className="text-base text-muted-foreground">
-          {filteredSuppliers.length} {filteredSuppliers.length === 1 ? 'supplier' : 'suppliers'}
+          {total} {total === 1 ? 'supplier' : 'suppliers'}
         </div>
       </div>
 
@@ -371,7 +378,7 @@ export default function SuppliersPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <TableSkeleton rows={8} cols={7} />
-          ) : filteredSuppliers.length === 0 ? (
+          ) : paginatedSuppliers.length === 0 ? (
             <div className="p-12">
               <Empty>
                 <EmptyHeader>
@@ -467,10 +474,10 @@ export default function SuppliersPage() {
         </CardContent>
       </Card>
 
-      {filteredSuppliers.length > 0 && totalPages > 1 && (
+      {total > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <div className="text-base text-muted-foreground">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredSuppliers.length)} of {filteredSuppliers.length} suppliers
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, total)} of {total} suppliers
           </div>
           <Pagination>
             <PaginationContent>

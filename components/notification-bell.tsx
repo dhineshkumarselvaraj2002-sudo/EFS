@@ -18,25 +18,29 @@ export function NotificationBell() {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const { data: alerts } = useQuery({
+  const { data: alertsData } = useQuery({
     queryKey: ['alerts'],
     queryFn: async () => {
-      const res = await fetch('/api/alerts')
-      if (!res.ok) return []
+      const res = await fetch('/api/alerts?limit=1000')
+      if (!res.ok) return { alerts: [] }
       return res.json()
     },
     refetchInterval: 30000, // Refetch every 30 seconds
   })
 
-  const { data: expiryAlerts } = useQuery({
+  const { data: expiryAlertsData } = useQuery({
     queryKey: ['expiry-alerts'],
     queryFn: async () => {
-      const res = await fetch('/api/expiry-alerts')
-      if (!res.ok) return []
+      const res = await fetch('/api/expiry-alerts?limit=1000')
+      if (!res.ok) return { expiryAlerts: [] }
       return res.json()
     },
     refetchInterval: 30000, // Refetch every 30 seconds
   })
+
+  // Extract arrays from paginated response (handle both old array format and new object format)
+  const alerts = Array.isArray(alertsData) ? alertsData : (alertsData?.alerts || [])
+  const expiryAlerts = Array.isArray(expiryAlertsData) ? expiryAlertsData : (expiryAlertsData?.expiryAlerts || [])
 
   const markAsRead = useMutation({
     mutationFn: async ({ id, type, markAll }: { id?: string; type?: 'stock' | 'expiry'; markAll?: boolean }) => {
@@ -85,11 +89,25 @@ export function NotificationBell() {
         // Mark all alerts as read in the cache
         queryClient.setQueryData(['alerts'], (oldData: any) => {
           if (!oldData) return oldData
-          return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
+          // Handle both array and object formats
+          if (Array.isArray(oldData)) {
+            return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
+          }
+          return {
+            ...oldData,
+            alerts: oldData.alerts?.map((alert: any) => ({ ...alert, status: 'READ' })) || []
+          }
         })
         queryClient.setQueryData(['expiry-alerts'], (oldData: any) => {
           if (!oldData) return oldData
-          return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
+          // Handle both array and object formats
+          if (Array.isArray(oldData)) {
+            return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
+          }
+          return {
+            ...oldData,
+            expiryAlerts: oldData.expiryAlerts?.map((alert: any) => ({ ...alert, status: 'READ' })) || []
+          }
         })
         toast.success('All notifications marked as read')
       } else {
@@ -97,16 +115,34 @@ export function NotificationBell() {
         if (variables.type === 'stock') {
           queryClient.setQueryData(['alerts'], (oldData: any) => {
             if (!oldData) return oldData
-            return oldData.map((alert: any) =>
-              alert.id === variables.id ? { ...alert, status: 'READ' } : alert
-            )
+            // Handle both array and object formats
+            if (Array.isArray(oldData)) {
+              return oldData.map((alert: any) =>
+                alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+              )
+            }
+            return {
+              ...oldData,
+              alerts: oldData.alerts?.map((alert: any) =>
+                alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+              ) || []
+            }
           })
         } else if (variables.type === 'expiry') {
           queryClient.setQueryData(['expiry-alerts'], (oldData: any) => {
             if (!oldData) return oldData
-            return oldData.map((alert: any) =>
-              alert.id === variables.id ? { ...alert, status: 'READ' } : alert
-            )
+            // Handle both array and object formats
+            if (Array.isArray(oldData)) {
+              return oldData.map((alert: any) =>
+                alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+              )
+            }
+            return {
+              ...oldData,
+              expiryAlerts: oldData.expiryAlerts?.map((alert: any) =>
+                alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+              ) || []
+            }
           })
         }
         toast.success('Notification marked as read')

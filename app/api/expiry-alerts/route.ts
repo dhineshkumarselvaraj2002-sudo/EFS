@@ -13,21 +13,58 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
+    const search = searchParams.get('search')
+    const productId = searchParams.get('productId')
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const skip = (page - 1) * limit
 
-    const expiryAlerts = await prisma.expiryAlert.findMany({
-      where: status ? { status: status as AlertStatus } : undefined,
-      include: {
-        batch: {
-          include: {
-            product: true,
-            warehouse: true,
+    // Build where clause
+    const where: any = {}
+    if (status) where.status = status as AlertStatus
+    if (dateFrom || dateTo) {
+      where.createdAt = {}
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom)
+      if (dateTo) where.createdAt.lte = new Date(dateTo)
+    }
+    if (search) {
+      where.OR = [
+        { batch: { product: { name: { contains: search, mode: 'insensitive' } } } },
+        { batch: { batchNumber: { contains: search, mode: 'insensitive' } } },
+        { message: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+    if (productId) {
+      where.batch = { productId }
+    }
+
+    const [expiryAlerts, total] = await Promise.all([
+      prisma.expiryAlert.findMany({
+        where,
+        include: {
+          batch: {
+            include: {
+              product: true,
+              warehouse: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    })
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.expiryAlert.count({ where }),
+    ])
 
-    return NextResponse.json(expiryAlerts)
+    return NextResponse.json({
+      expiryAlerts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    })
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch expiry alerts' },

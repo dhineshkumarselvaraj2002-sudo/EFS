@@ -195,10 +195,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Create transaction record for usage
+      // Both sourceWarehouseId and destinationWarehouseId are required
       const transaction = await tx.transaction.create({
         data: {
           productId,
-          sourceWarehouseId: warehouseId,
+          sourceWarehouseId: warehouseId, // Source warehouse where items are used from
+          destinationWarehouseId: warehouseId, // Destination is same warehouse (usage doesn't move to another warehouse)
           quantity,
           type: TransactionType.USAGE,
           userId: currentUserId,

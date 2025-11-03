@@ -141,6 +141,40 @@ export default function TransactionsPage() {
     }
   }
 
+  const getFromDisplay = (tx: any) => {
+    // For IN/RETURN transactions: show supplier name
+    if (tx.type === 'IN' || tx.type === 'RETURN') {
+      if (tx.supplier?.name) {
+        return tx.supplier.name
+      }
+      // Fallback to warehouse if supplier not found
+      return tx.sourceWarehouse?.name || 'External'
+    }
+    // For OUT/USAGE: stock comes from a warehouse
+    if (tx.type === 'OUT' || tx.type === 'USAGE') {
+      return tx.sourceWarehouse?.name || tx.destinationWarehouse?.name || 'External'
+    }
+    // For TRANSFER: source warehouse should always exist
+    return tx.sourceWarehouse?.name || tx.destinationWarehouse?.name || '-'
+  }
+
+  const getToDisplay = (tx: any) => {
+    // For OUT/USAGE transactions: show user name
+    if (tx.type === 'OUT' || tx.type === 'USAGE') {
+      if (tx.user?.name) {
+        return tx.user.name
+      }
+      // Fallback to warehouse if user not found
+      return tx.destinationWarehouse?.name || 'External'
+    }
+    // For IN/RETURN: stock goes to warehouse
+    if (tx.type === 'IN' || tx.type === 'RETURN') {
+      return tx.destinationWarehouse?.name || tx.sourceWarehouse?.name || 'External'
+    }
+    // For TRANSFER: destination warehouse should always exist
+    return tx.destinationWarehouse?.name || tx.sourceWarehouse?.name || '-'
+  }
+
   return (
     <div className="space-y-8 md:space-y-10 w-full max-w-full overflow-x-hidden">
       <PageBreadcrumb />
@@ -211,10 +245,10 @@ export default function TransactionsPage() {
                       <TableCell className="text-base whitespace-nowrap py-4 px-4">{getTypeBadge(tx.type)}</TableCell>
                       <TableCell className="text-base whitespace-nowrap py-4 px-4">{tx.quantity}</TableCell>
                       <TableCell className="text-base break-words py-4 px-4">
-                        <div className="break-words whitespace-normal">{tx.sourceWarehouse?.name || '-'}</div>
+                        <div className="break-words whitespace-normal">{getFromDisplay(tx)}</div>
                       </TableCell>
                       <TableCell className="text-base break-words py-4 px-4">
-                        <div className="break-words whitespace-normal">{tx.destinationWarehouse?.name || '-'}</div>
+                        <div className="break-words whitespace-normal">{getToDisplay(tx)}</div>
                       </TableCell>
                       <TableCell className="text-base py-4 px-4">
                         {tx.user ? (
