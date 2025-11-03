@@ -2,11 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Package, Warehouse, AlertTriangle, ShoppingCart, Calendar, Bell } from 'lucide-react'
+import { Package, Warehouse, AlertTriangle, ShoppingCart, Calendar, Bell, LayoutDashboard } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
+import { DashboardSkeleton } from '@/components/skeleton-dashboard'
 import { PageBreadcrumb } from '@/components/page-breadcrumb'
 import { ChartLineMultiple } from '@/components/chart-line-multiple'
 import { ChartPieInteractive } from '@/components/chart-pie-interactive'
@@ -18,6 +19,14 @@ import { ChartPurchaseOrdersStatus } from '@/components/chart-purchase-orders-st
 import { ChartSupplierPerformance } from '@/components/chart-supplier-performance'
 import { ChartExpiringBatches } from '@/components/chart-expiring-batches'
 import { ChartLowStockProducts } from '@/components/chart-low-stock-products'
+import { LowStockAlert } from '@/components/low-stock-alert'
+import { ChartProductsAnalytics } from '@/components/chart-products-analytics'
+import { ChartWarehousesAnalytics } from '@/components/chart-warehouses-analytics'
+import { ChartInventoryAnalytics } from '@/components/chart-inventory-analytics'
+import { ChartTransactionsAnalytics } from '@/components/chart-transactions-analytics'
+import { ChartSuppliersAnalytics } from '@/components/chart-suppliers-analytics'
+import { ChartPurchaseOrdersAnalytics } from '@/components/chart-purchase-orders-analytics'
+import { ChartAlertsAnalytics } from '@/components/chart-alerts-analytics'
 
 export default function DashboardPage() {
   const { data: stats, isLoading, error } = useQuery({
@@ -31,14 +40,7 @@ export default function DashboardPage() {
   })
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-4">
-          <Spinner size="lg" />
-          <p className="text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
-    )
+    return <DashboardSkeleton />
   }
 
   if (error) {
@@ -56,20 +58,23 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
       <div>
-        <h1 className="text-3xl font-bold">Dashboard Overview</h1>
-        <p className="text-muted-foreground">Real-time inventory insights</p>
+        <div className="flex items-center gap-3 mb-3">
+          <LayoutDashboard className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+          <h1 className="text-3xl md:text-4xl font-bold">Dashboard Overview</h1>
+        </div>
+        <p className="text-base md:text-lg text-muted-foreground ml-9">Real-time inventory insights</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="text-2xl font-bold">{stats?.totalProducts || 0}</div>
           </CardContent>
         </Card>
@@ -79,7 +84,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Warehouses</CardTitle>
             <Warehouse className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="text-2xl font-bold">{stats?.totalWarehouses || 0}</div>
           </CardContent>
         </Card>
@@ -89,7 +94,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
             <AlertTriangle className="h-4 w-4 text-destructive" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="text-2xl font-bold text-destructive">
               {stats?.lowStockItems || 0}
             </div>
@@ -101,7 +106,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="text-2xl font-bold">{stats?.pendingOrders || 0}</div>
           </CardContent>
         </Card>
@@ -111,7 +116,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Expiring Batches</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="text-2xl font-bold">
               {stats?.expiringBatches || 0}
             </div>
@@ -123,22 +128,22 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">New Alerts</CardTitle>
             <Bell className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-2">
             <div className="flex items-center gap-2">
               <div className="text-2xl font-bold">{stats?.totalAlerts || 0}</div>
               {(stats?.totalAlerts || 0) > 0 && (
-                <Badge variant="destructive">
+                <Badge variant="destructive" className="text-xs">
                   {stats?.totalAlerts || 0} New
                 </Badge>
               )}
             </div>
             {(stats?.newAlerts || 0) > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 {stats?.newAlerts} stock alerts
               </p>
             )}
             {(stats?.newExpiryAlerts || 0) > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground mt-1.5">
                 {stats?.newExpiryAlerts} expiry alerts
               </p>
             )}
@@ -147,35 +152,52 @@ export default function DashboardPage() {
       </div>
 
       {/* Transaction & Inventory Analytics */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2">
         <ChartLineMultiple />
         <ChartPieInteractive />
         <ChartBarLabelCustom />
         <ChartRadialLabel />
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-4 md:gap-6">
         <ChartAreaInteractive />
       </div>
 
-      {/* Alerts & Monitoring Analytics */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Alerts & Monitoring</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ChartAlertsTrend />
-          <ChartExpiringBatches />
+      {/* Comprehensive Analytics Sections */}
+      <div className="space-y-8 md:space-y-10">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Products Analytics</h2>
+          <ChartProductsAnalytics />
         </div>
-        <div className="grid gap-4 mt-4">
-          <ChartLowStockProducts />
-        </div>
-      </div>
 
-      {/* Purchase Orders & Suppliers Analytics */}
-      <div>
-        <h2 className="text-2xl font-bold mb-4">Purchase Orders & Suppliers</h2>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ChartPurchaseOrdersStatus />
-          <ChartSupplierPerformance />
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Warehouses Analytics</h2>
+          <ChartWarehousesAnalytics />
+        </div>
+
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Inventory Analytics</h2>
+          <ChartInventoryAnalytics />
+        </div>
+
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Transactions Analytics</h2>
+          <ChartTransactionsAnalytics />
+        </div>
+
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Suppliers Analytics</h2>
+          <ChartSuppliersAnalytics />
+        </div>
+
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Purchase Orders Analytics</h2>
+          <ChartPurchaseOrdersAnalytics />
+        </div>
+
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-6">Alerts Analytics</h2>
+          <ChartAlertsAnalytics />
         </div>
       </div>
     </div>

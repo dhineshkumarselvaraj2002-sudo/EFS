@@ -17,6 +17,18 @@ export async function GET() {
             purchaseOrders: true,
           },
         },
+        productSuppliers: {
+          include: {
+            product: true,
+          },
+        },
+        purchaseOrders: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            product: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     })

@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/empty'
 import { useErrorToast } from '@/lib/utils/toast-helpers'
 import { PageBreadcrumb } from '@/components/page-breadcrumb'
+import { TableSkeleton } from '@/components/skeleton-table'
 import { DataTableFilters, FilterOption } from '@/components/filters/data-table-filters'
 import {
   Select,
@@ -284,12 +285,15 @@ export default function ProductsPage() {
   }, [filters])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Products</h1>
-          <p className="text-muted-foreground">Manage your product catalog</p>
+          <div className="flex items-center gap-3 mb-3">
+            <Package className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+            <h1 className="text-3xl md:text-4xl font-bold">Products</h1>
+          </div>
+          <p className="text-base md:text-lg text-muted-foreground ml-9">Manage your product catalog</p>
         </div>
         <Dialog
           open={isDialogOpen}
@@ -413,7 +417,7 @@ export default function ProductsPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-sm text-muted-foreground">
+        <div className="text-base text-muted-foreground">
           {filteredProducts.length} {filteredProducts.length === 1 ? 'product' : 'products'}
         </div>
       </div>
@@ -421,7 +425,7 @@ export default function ProductsPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-center">Loading...</div>
+            <TableSkeleton rows={8} cols={7} />
           ) : filteredProducts.length === 0 ? (
             <div className="p-12">
               <Empty>
@@ -448,13 +452,13 @@ export default function ProductsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead>Stock Available</TableHead>
-                  <TableHead>Min Stock</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="text-base font-semibold">Name</TableHead>
+                  <TableHead className="text-base font-semibold">SKU</TableHead>
+                  <TableHead className="text-base font-semibold">Category</TableHead>
+                  <TableHead className="text-base font-semibold">Unit</TableHead>
+                  <TableHead className="text-base font-semibold">Stock Available</TableHead>
+                  <TableHead className="text-base font-semibold">Min Stock</TableHead>
+                  <TableHead className="text-base font-semibold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -465,23 +469,23 @@ export default function ProductsPage() {
                   
                   return (
                     <TableRow key={product.id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>{product.sku}</TableCell>
-                      <TableCell>{product.category}</TableCell>
-                      <TableCell>{product.unit}</TableCell>
-                      <TableCell>
+                      <TableCell className="font-medium text-base">{product.name}</TableCell>
+                      <TableCell className="text-base">{product.sku}</TableCell>
+                      <TableCell className="text-base">{product.category}</TableCell>
+                      <TableCell className="text-base">{product.unit}</TableCell>
+                      <TableCell className="text-base">
                         <div className="flex items-center gap-2">
-                          <span className={isLowStock ? 'text-destructive font-medium' : ''}>
+                          <span className={`text-base ${isLowStock ? 'text-destructive font-medium' : ''}`}>
                             {totalStock}
                           </span>
                           {isLowStock && (
-                            <Badge variant="destructive" className="text-xs">
+                            <Badge variant="destructive" className="text-sm">
                               Low
                             </Badge>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-base">
                         {minStockLevel || '-'}
                       </TableCell>
                       <TableCell>
@@ -513,7 +517,7 @@ export default function ProductsPage() {
 
       {filteredProducts.length > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-base text-muted-foreground">
             Showing {startIndex + 1} to {Math.min(endIndex, filteredProducts.length)} of {filteredProducts.length} products
           </div>
           <Pagination>
@@ -528,21 +532,37 @@ export default function ProductsPage() {
                   className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                 />
               </PaginationItem>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <PaginationItem key={page}>
-                  <PaginationLink
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      setCurrentPage(page)
-                    }}
-                    isActive={currentPage === page}
-                    className="cursor-pointer"
-                  >
-                    {page}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
+              {(() => {
+                // Calculate which 5 pages to show
+                let startPage = Math.max(1, currentPage - 2)
+                let endPage = Math.min(totalPages, startPage + 4)
+                
+                // Adjust if we're near the end
+                if (endPage - startPage < 4) {
+                  startPage = Math.max(1, endPage - 4)
+                }
+                
+                const pages = []
+                for (let i = startPage; i <= endPage; i++) {
+                  pages.push(i)
+                }
+                
+                return pages.map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setCurrentPage(page)
+                      }}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))
+              })()}
               <PaginationItem>
                 <PaginationNext 
                   href="#" 

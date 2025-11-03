@@ -24,10 +24,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageBreadcrumb } from '@/components/page-breadcrumb'
+import { TableSkeleton } from '@/components/skeleton-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, CheckCircle, ShoppingCart } from 'lucide-react'
+import { Plus, CheckCircle, ShoppingCart, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Empty,
@@ -57,7 +58,7 @@ import {
 import { format } from 'date-fns'
 
 const poSchema = z.object({
-  supplierId: z.string().min(1, 'Supplier is required'),
+  supplierId: z.string().optional(), // Optional - will auto-select cheapest if not provided
   productId: z.string().min(1, 'Product is required'),
   quantity: z.number().min(1, 'Quantity must be greater than 0'),
 })
@@ -80,15 +81,6 @@ export default function PurchaseOrdersPage() {
     },
   })
 
-  const { data: suppliers } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: async () => {
-      const res = await fetch('/api/suppliers')
-      if (!res.ok) throw new Error('Failed to fetch suppliers')
-      return res.json()
-    },
-  })
-
   const { data: products } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
@@ -97,6 +89,39 @@ export default function PurchaseOrdersPage() {
       return res.json()
     },
   })
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    setValue,
+    watch,
+  } = useForm<z.infer<typeof poSchema>>({
+    resolver: zodResolver(poSchema),
+  })
+
+  // Watch product selection to fetch linked suppliers
+  const selectedProductId = watch('productId')
+  
+  // Fetch linked suppliers for selected product
+  const { data: linkedSuppliers, isLoading: isLoadingSuppliers } = useQuery({
+    queryKey: ['product-suppliers', selectedProductId],
+    queryFn: async () => {
+      if (!selectedProductId) return []
+      const res = await fetch(`/api/products/${selectedProductId}/suppliers`)
+      if (!res.ok) throw new Error('Failed to fetch linked suppliers')
+      return res.json()
+    },
+    enabled: !!selectedProductId, // Only fetch when product is selected
+  })
+
+  // Reset supplier when product changes (but don't auto-select - let user choose or use auto)
+  useEffect(() => {
+    if (selectedProductId) {
+      setValue('supplierId', '')
+    }
+  }, [selectedProductId, setValue])
 
   const { data: warehouses } = useQuery({
     queryKey: ['warehouses'],
@@ -107,6 +132,37 @@ export default function PurchaseOrdersPage() {
     },
   })
 
+  const { data: inventory } = useQuery({
+    queryKey: ['inventory'],
+    queryFn: async () => {
+      const res = await fetch('/api/inventory')
+      if (!res.ok) throw new Error('Failed to fetch inventory')
+      return res.json()
+    },
+  })
+
+  // Filter warehouses for receive dialog - only show warehouses with low stock
+  const availableWarehousesForReceive = useMemo(() => {
+    if (!receivingPO || !warehouses || !inventory) return []
+    
+    const productId = receivingPO.productId
+    const product = products?.find((p: any) => p.id === productId)
+    const minStockLevel = product?.productSettings?.minStockLevel || 0
+    
+    return warehouses.filter((warehouse: any) => {
+      // Find inventory for this product in this warehouse
+      const inv = inventory.find(
+        (inv: any) => inv.productId === productId && inv.warehouseId === warehouse.id
+      )
+      
+      // Show warehouse if:
+      // 1. No inventory exists (quantity = 0)
+      // 2. Current quantity is at or below minStockLevel
+      const currentQuantity = inv?.quantity || 0
+      return currentQuantity <= minStockLevel
+    })
+  }, [receivingPO, warehouses, inventory, products])
+
   const createPO = useMutation({
     mutationFn: async (data: any) => {
       const res = await fetch('/api/purchase-orders', {
@@ -114,14 +170,67 @@ export default function PurchaseOrdersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
-      if (!res.ok) throw new Error('Failed to create purchase order')
+      
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.error || 'Failed to create purchase order')
+      }
+      
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['purchase-orders'] })
-      toast.success('Purchase order created')
+      
+      if (data.autoSelectedSupplier) {
+        toast.success('Purchase order created', {
+          description: `Automatically selected cheapest supplier: ${data.supplier.name} ($${data.supplier.price?.toFixed(2) || '0.00'}/unit)`,
+        })
+      } else {
+        toast.success('Purchase order created')
+      }
+      
       setIsDialogOpen(false)
       reset()
+    },
+    onError: (error: any) => {
+      const errorMessage = error.message || 'Failed to create purchase order'
+      
+      if (errorMessage.includes('no linked suppliers')) {
+        toast.error('Cannot Create Purchase Order', {
+          description: 'This product has no linked suppliers. Please link a supplier to this product first in the Suppliers page.',
+          duration: 6000,
+        })
+      } else if (errorMessage.includes('not linked to this product')) {
+        toast.error('Invalid Supplier', {
+          description: 'The selected supplier is not linked to this product. Please select a linked supplier.',
+          duration: 5000,
+        })
+      } else {
+        toast.error('Failed to Create Purchase Order', {
+          description: errorMessage,
+          duration: 5000,
+        })
+      }
+    },
+  })
+
+  const updatePOStatus = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const res = await fetch(`/api/purchase-orders/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.error || 'Failed to update purchase order')
+      }
+      return res.json()
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
+      toast.success(`Purchase order ${variables.status === 'SENT' ? 'sent' : 'updated'}`)
     },
   })
 
@@ -149,17 +258,6 @@ export default function PurchaseOrdersPage() {
       setReceivingPO(null)
       receiveReset()
     },
-  })
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    reset,
-    setValue,
-    watch,
-  } = useForm<z.infer<typeof poSchema>>({
-    resolver: zodResolver(poSchema),
   })
 
   const {
@@ -201,12 +299,16 @@ export default function PurchaseOrdersPage() {
       case 'PENDING':
         return <Badge variant="outline">Pending</Badge>
       case 'SENT':
-        return <Badge variant="default">Sent</Badge>
+        return <Badge variant="default">Sent/Approved</Badge>
       case 'RECEIVED':
         return <Badge variant="secondary">Received</Badge>
       default:
         return <Badge>{status}</Badge>
     }
+  }
+
+  const handleApprove = (po: any) => {
+    updatePOStatus.mutate({ id: po.id, status: 'SENT' })
   }
 
   const filterOptions: FilterOption[] = useMemo(() => [
@@ -230,14 +332,14 @@ export default function PurchaseOrdersPage() {
       key: 'supplierId',
       label: 'Supplier',
       type: 'select',
-      options: suppliers?.map((s: any) => ({ label: s.name, value: s.id })) || [],
+      options: [], // Suppliers filter removed - use search instead
     },
     {
       key: 'dateRange',
       label: 'Date Range',
       type: 'dateRange',
     },
-  ], [suppliers])
+  ], [])
 
   const filteredOrders = useMemo(() => {
     if (!orders) return []
@@ -275,12 +377,15 @@ export default function PurchaseOrdersPage() {
   }, [filters])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Purchase Orders</h1>
-          <p className="text-muted-foreground">Manage purchase orders from suppliers</p>
+          <div className="flex items-center gap-3 mb-3">
+            <ShoppingCart className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+            <h1 className="text-3xl md:text-4xl font-bold">Purchase Orders</h1>
+          </div>
+          <p className="text-base md:text-lg text-muted-foreground ml-9">Manage purchase orders from suppliers</p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -296,25 +401,10 @@ export default function PurchaseOrdersPage() {
             </DialogHeader>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
-                <Label>Supplier</Label>
-                <Select onValueChange={(value) => setValue('supplierId', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {suppliers?.map((s: any) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
                 <Label>Product</Label>
                 <Select onValueChange={(value) => setValue('productId', value)}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select product" />
+                    <SelectValue placeholder="Select product first" />
                   </SelectTrigger>
                   <SelectContent>
                     {products?.map((p: any) => (
@@ -324,6 +414,45 @@ export default function PurchaseOrdersPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Supplier</Label>
+                <Select 
+                  onValueChange={(value) => setValue('supplierId', value)}
+                  disabled={!selectedProductId || isLoadingSuppliers}
+                  value={watch('supplierId')}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={
+                      !selectedProductId 
+                        ? "Select a product first" 
+                        : isLoadingSuppliers 
+                        ? "Loading suppliers..." 
+                        : "Select linked supplier"
+                    } />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {linkedSuppliers && linkedSuppliers.length > 0 ? (
+                      linkedSuppliers.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name} - ${s.price?.toFixed(2) || '0.00'} per unit
+                        </SelectItem>
+                      ))
+                    ) : selectedProductId ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No suppliers linked to this product
+                      </div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+                {selectedProductId && linkedSuppliers && linkedSuppliers.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    This product has no linked suppliers. Please link a supplier first.
+                  </p>
+                )}
+                {errors.supplierId && (
+                  <p className="text-sm text-destructive">{errors.supplierId.message}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quantity">Quantity</Label>
@@ -350,7 +479,7 @@ export default function PurchaseOrdersPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-sm text-muted-foreground">
+        <div className="text-base text-muted-foreground">
           {filteredOrders.length} {filteredOrders.length === 1 ? 'order' : 'orders'}
         </div>
       </div>
@@ -368,16 +497,44 @@ export default function PurchaseOrdersPage() {
               <Label>Warehouse</Label>
               <Select onValueChange={(value) => setReceiveValue('warehouseId', value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select warehouse" />
+                  <SelectValue placeholder={
+                    !receivingPO
+                      ? "Select warehouse"
+                      : availableWarehousesForReceive.length === 0
+                      ? "No warehouses with low stock"
+                      : "Select warehouse"
+                  } />
                 </SelectTrigger>
                 <SelectContent>
-                  {warehouses?.map((w: any) => (
-                    <SelectItem key={w.id} value={w.id}>
-                      {w.name}
-                    </SelectItem>
-                  ))}
+                  {availableWarehousesForReceive.length > 0 ? (
+                    availableWarehousesForReceive.map((w: any) => {
+                      const inv = inventory?.find(
+                        (inv: any) => 
+                          inv.productId === receivingPO?.productId && 
+                          inv.warehouseId === w.id
+                      )
+                      const currentQuantity = inv?.quantity || 0
+                      const product = products?.find((p: any) => p.id === receivingPO?.productId)
+                      const minStockLevel = product?.productSettings?.minStockLevel || 0
+                      
+                      return (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name} {currentQuantity === 0 ? '(No stock)' : `(${currentQuantity}/${minStockLevel} min)`}
+                        </SelectItem>
+                      )
+                    })
+                  ) : receivingPO ? (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                      All warehouses have stock above minimum level
+                    </div>
+                  ) : null}
                 </SelectContent>
               </Select>
+              {receivingPO && availableWarehousesForReceive.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No warehouses have stock at or below minimum level. Consider creating a new warehouse or adjusting stock levels.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="batchNumber">Batch Number (Optional)</Label>
@@ -407,7 +564,7 @@ export default function PurchaseOrdersPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-center">Loading...</div>
+            <TableSkeleton rows={8} cols={8} />
           ) : filteredOrders.length === 0 ? (
             <div className="p-12">
               <Empty>
@@ -434,38 +591,62 @@ export default function PurchaseOrdersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Date</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Supplier</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Product</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Quantity</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Unit Price</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Total</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Status</TableHead>
+                  <TableHead className="text-base font-semibold py-4 px-4">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedOrders.map((order: any) => (
-                  <TableRow key={order.id}>
-                    <TableCell>
-                      {format(new Date(order.createdAt), 'PPp')}
-                    </TableCell>
-                    <TableCell className="font-medium">{order.supplier?.name}</TableCell>
-                    <TableCell>{order.product?.name}</TableCell>
-                    <TableCell>{order.quantity}</TableCell>
-                    <TableCell>{getStatusBadge(order.status)}</TableCell>
-                    <TableCell>
-                      {order.status !== 'RECEIVED' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleReceive(order)}
-                        >
-                          <CheckCircle className="mr-2 h-4 w-4" />
-                          Receive
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {paginatedOrders.map((order: any) => {
+                  const total = order.unitPrice ? (order.unitPrice * order.quantity).toFixed(2) : '-'
+                  return (
+                    <TableRow key={order.id}>
+                      <TableCell className="text-base py-4 px-4">
+                        {format(new Date(order.createdAt), 'PPp')}
+                      </TableCell>
+                      <TableCell className="font-medium text-base py-4 px-4">{order.supplier?.name}</TableCell>
+                      <TableCell className="text-base py-4 px-4">{order.product?.name}</TableCell>
+                      <TableCell className="text-base py-4 px-4">{order.quantity}</TableCell>
+                      <TableCell className="text-base py-4 px-4">
+                        {order.unitPrice ? `$${order.unitPrice.toFixed(2)}` : '-'}
+                      </TableCell>
+                      <TableCell className="text-base py-4 px-4">
+                        {order.unitPrice ? `$${total}` : '-'}
+                      </TableCell>
+                      <TableCell className="py-4 px-4">{getStatusBadge(order.status)}</TableCell>
+                      <TableCell className="py-4 px-4">
+                        <div className="flex gap-2">
+                          {order.status === 'PENDING' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleApprove(order)}
+                              disabled={updatePOStatus.isPending}
+                            >
+                              <Send className="mr-2 h-4 w-4" />
+                              Approve
+                            </Button>
+                          )}
+                          {order.status !== 'RECEIVED' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleReceive(order)}
+                            >
+                              <CheckCircle className="mr-2 h-4 w-4" />
+                              Receive
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           )}
@@ -474,7 +655,7 @@ export default function PurchaseOrdersPage() {
 
       {filteredOrders.length > 0 && totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-base text-muted-foreground">
             Showing {startIndex + 1} to {Math.min(endIndex, filteredOrders.length)} of {filteredOrders.length} orders
           </div>
           <Pagination>
@@ -489,21 +670,37 @@ export default function PurchaseOrdersPage() {
                   className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                 />
               </PaginationItem>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <PaginationItem key={page}>
-                  <PaginationLink
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      setCurrentPage(page)
-                    }}
-                    isActive={currentPage === page}
-                    className="cursor-pointer"
-                  >
-                    {page}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
+              {(() => {
+                // Calculate which 5 pages to show
+                let startPage = Math.max(1, currentPage - 2)
+                let endPage = Math.min(totalPages, startPage + 4)
+                
+                // Adjust if we're near the end
+                if (endPage - startPage < 4) {
+                  startPage = Math.max(1, endPage - 4)
+                }
+                
+                const pages = []
+                for (let i = startPage; i <= endPage; i++) {
+                  pages.push(i)
+                }
+                
+                return pages.map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setCurrentPage(page)
+                      }}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))
+              })()}
               <PaginationItem>
                 <PaginationNext 
                   href="#" 

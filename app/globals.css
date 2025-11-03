@@ -123,3 +123,34 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Page transition animations */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+}
+
+.page-transition-enter {
+  animation: slideIn 0.3s ease-out;
+}
+
+.page-transition-exit {
+  animation: slideOut 0.2s ease-in;
+}

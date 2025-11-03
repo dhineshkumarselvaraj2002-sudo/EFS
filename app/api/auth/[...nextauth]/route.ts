@@ -37,6 +37,11 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Invalid credentials')
         }
 
+        // Check if user has a password (email/password user)
+        if (!user.password) {
+          throw new Error('Please sign in with your OAuth provider or set a password')
+        }
+
         const isValid = await verifyPassword(credentials.password, user.password)
 
         if (!isValid) {
@@ -86,7 +91,8 @@ export const authOptions: NextAuthOptions = {
               data: {
                 email: user.email,
                 name: user.name || (profile as any)?.name || 'Google User',
-                password: '', // OAuth users don't need a password
+                // OAuth users don't need a password - leave it null
+                password: null,
                 role: 'USER',
               },
             })
@@ -110,6 +116,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id
         token.role = (user as any).role || 'USER'
+        token.email = user.email // Store email in token for reliability
       }
       return token
     },
@@ -117,6 +124,10 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = (token.role as UserRole) || 'USER'
+        // Ensure email is set (fallback to token.email if session.email is missing)
+        if (!session.user.email && (token.email as string)) {
+          session.user.email = token.email as string
+        }
       }
       return session
     },

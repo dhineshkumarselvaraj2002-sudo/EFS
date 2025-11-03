@@ -88,8 +88,10 @@ export async function GET(request: NextRequest) {
           continue
         }
 
-        // Create purchase order using first supplier
-        const supplier = product.productSuppliers[0]
+        // Choose supplier with minimum cost
+        // The productSuppliers relation already includes price, so we can sort directly
+        const sortedSuppliers = [...product.productSuppliers].sort((a, b) => a.price - b.price)
+        const supplier = sortedSuppliers[0]
         const reorderQuantity = product.productSettings.minStockLevel * 2
 
         try {

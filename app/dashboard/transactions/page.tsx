@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/empty'
 import { DataTableFilters, FilterOption } from '@/components/filters/data-table-filters'
 import { useMemo, useState, useEffect } from 'react'
+import { TableSkeleton } from '@/components/skeleton-table'
 import {
   Pagination,
   PaginationContent,
@@ -70,6 +71,8 @@ export default function TransactionsPage() {
         { label: 'Stock In', value: 'IN' },
         { label: 'Stock Out', value: 'OUT' },
         { label: 'Transfer', value: 'TRANSFER' },
+        { label: 'Return', value: 'RETURN' },
+        { label: 'Usage', value: 'USAGE' },
       ],
     },
     {
@@ -129,27 +132,36 @@ export default function TransactionsPage() {
         return <Badge variant="destructive">Stock Out</Badge>
       case 'TRANSFER':
         return <Badge variant="outline">Transfer</Badge>
+      case 'RETURN':
+        return <Badge variant="secondary">Return</Badge>
+      case 'USAGE':
+        return <Badge variant="destructive">Usage</Badge>
       default:
         return <Badge>{type}</Badge>
     }
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 md:space-y-10 w-full max-w-full overflow-x-hidden">
       <PageBreadcrumb />
       <div>
-        <h1 className="text-3xl font-bold">Transactions</h1>
-        <p className="text-muted-foreground">View all inventory transactions</p>
+        <div className="flex items-center gap-3 mb-3">
+          <ArrowRightLeft className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+          <h1 className="text-3xl md:text-4xl font-bold">Transactions</h1>
+        </div>
+        <p className="text-base md:text-lg text-muted-foreground ml-9">View all inventory transactions</p>
       </div>
 
-      <div className="flex items-center justify-between">
-        <DataTableFilters
-          filters={filterOptions}
-          values={filters}
-          onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
-          onClear={() => setFilters({})}
-        />
-        <div className="text-sm text-muted-foreground">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 w-full">
+        <div className="w-full sm:w-auto">
+          <DataTableFilters
+            filters={filterOptions}
+            values={filters}
+            onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
+            onClear={() => setFilters({})}
+          />
+        </div>
+        <div className="text-base text-muted-foreground whitespace-nowrap">
           {filteredTransactions.length} {filteredTransactions.length === 1 ? 'transaction' : 'transactions'}
         </div>
       </div>
@@ -157,7 +169,7 @@ export default function TransactionsPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-center">Loading...</div>
+            <TableSkeleton rows={8} cols={8} />
           ) : filteredTransactions.length === 0 ? (
             <div className="p-12">
               <Empty>
@@ -175,39 +187,60 @@ export default function TransactionsPage() {
               </Empty>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Quantity</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Destination</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedTransactions.map((tx: any) => (
-                  <TableRow key={tx.id}>
-                    <TableCell>
-                      {format(new Date(tx.timestamp), 'PPp')}
-                    </TableCell>
-                    <TableCell className="font-medium">{tx.product?.name}</TableCell>
-                    <TableCell>{getTypeBadge(tx.type)}</TableCell>
-                    <TableCell>{tx.quantity}</TableCell>
-                    <TableCell>{tx.sourceWarehouse?.name || '-'}</TableCell>
-                    <TableCell>{tx.destinationWarehouse?.name || '-'}</TableCell>
+            <div className="overflow-x-auto w-full">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[180px] text-base font-semibold py-4 px-4">Date</TableHead>
+                    <TableHead className="min-w-[150px] text-base font-semibold py-4 px-4">Product</TableHead>
+                    <TableHead className="min-w-[100px] text-base font-semibold py-4 px-4">Type</TableHead>
+                    <TableHead className="min-w-[80px] text-base font-semibold py-4 px-4">Quantity</TableHead>
+                    <TableHead className="min-w-[120px] text-base font-semibold py-4 px-4">From</TableHead>
+                    <TableHead className="min-w-[120px] text-base font-semibold py-4 px-4">To</TableHead>
+                    <TableHead className="min-w-[150px] text-base font-semibold py-4 px-4">User</TableHead>
+                    <TableHead className="min-w-[150px] max-w-[200px] text-base font-semibold py-4 px-4">Reason</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {paginatedTransactions.map((tx: any) => (
+                    <TableRow key={tx.id}>
+                      <TableCell className="text-base whitespace-nowrap py-4 px-4">
+                        {format(new Date(tx.timestamp), 'PPp')}
+                      </TableCell>
+                      <TableCell className="font-medium text-base whitespace-nowrap py-4 px-4">{tx.product?.name}</TableCell>
+                      <TableCell className="text-base whitespace-nowrap py-4 px-4">{getTypeBadge(tx.type)}</TableCell>
+                      <TableCell className="text-base whitespace-nowrap py-4 px-4">{tx.quantity}</TableCell>
+                      <TableCell className="text-base break-words py-4 px-4">
+                        <div className="break-words whitespace-normal">{tx.sourceWarehouse?.name || '-'}</div>
+                      </TableCell>
+                      <TableCell className="text-base break-words py-4 px-4">
+                        <div className="break-words whitespace-normal">{tx.destinationWarehouse?.name || '-'}</div>
+                      </TableCell>
+                      <TableCell className="text-base py-4 px-4">
+                        {tx.user ? (
+                          <div className="text-base">
+                            <div className="font-medium whitespace-nowrap">{tx.user.name}</div>
+                            <div className="text-muted-foreground text-sm truncate max-w-[150px]">{tx.user.email}</div>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-base max-w-[200px] break-words py-4 px-4" title={tx.reason || '-'}>
+                        <div className="break-words whitespace-normal">{tx.reason || '-'}</div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {filteredTransactions.length > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 w-full">
+          <div className="text-base text-muted-foreground whitespace-nowrap">
             Showing {startIndex + 1} to {Math.min(endIndex, filteredTransactions.length)} of {filteredTransactions.length} transactions
           </div>
           <Pagination>
@@ -222,21 +255,37 @@ export default function TransactionsPage() {
                   className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                 />
               </PaginationItem>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <PaginationItem key={page}>
-                  <PaginationLink
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      setCurrentPage(page)
-                    }}
-                    isActive={currentPage === page}
-                    className="cursor-pointer"
-                  >
-                    {page}
-                  </PaginationLink>
-                </PaginationItem>
-              ))}
+              {(() => {
+                // Calculate which 5 pages to show
+                let startPage = Math.max(1, currentPage - 2)
+                let endPage = Math.min(totalPages, startPage + 4)
+                
+                // Adjust if we're near the end
+                if (endPage - startPage < 4) {
+                  startPage = Math.max(1, endPage - 4)
+                }
+                
+                const pages = []
+                for (let i = startPage; i <= endPage; i++) {
+                  pages.push(i)
+                }
+                
+                return pages.map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setCurrentPage(page)
+                      }}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))
+              })()}
               <PaginationItem>
                 <PaginationNext 
                   href="#" 

@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 4. Create 50 Products
+      // 4. Create 100 Products
       const productTemplates = [
         { name: 'Laptop Computer', category: 'Electronics', unit: 'unit' },
         { name: 'Office Chair', category: 'Furniture', unit: 'unit' },
@@ -198,10 +198,49 @@ export async function POST(request: NextRequest) {
         { name: 'Index Cards', category: 'Office Supplies', unit: 'pack' },
         { name: 'Envelopes', category: 'Office Supplies', unit: 'pack' },
         { name: 'Folders', category: 'Office Supplies', unit: 'pack' },
+        { name: 'Projector', category: 'Electronics', unit: 'unit' },
+        { name: 'Projector Screen', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Presentation Remote', category: 'Electronics', unit: 'unit' },
+        { name: 'HDMI Cable', category: 'Electronics', unit: 'unit' },
+        { name: 'VGA Cable', category: 'Electronics', unit: 'unit' },
+        { name: 'Extension Cord', category: 'Electronics', unit: 'unit' },
+        { name: 'Surge Protector', category: 'Electronics', unit: 'unit' },
+        { name: 'Desk Fan', category: 'Electronics', unit: 'unit' },
+        { name: 'Space Heater', category: 'Electronics', unit: 'unit' },
+        { name: 'Air Purifier', category: 'Electronics', unit: 'unit' },
+        { name: 'White Noise Machine', category: 'Electronics', unit: 'unit' },
+        { name: 'Coffee Maker', category: 'Electronics', unit: 'unit' },
+        { name: 'Water Cooler', category: 'Electronics', unit: 'unit' },
+        { name: 'Refrigerator', category: 'Electronics', unit: 'unit' },
+        { name: 'Microwave', category: 'Electronics', unit: 'unit' },
+        { name: 'Waste Basket', category: 'Furniture', unit: 'unit' },
+        { name: 'Recycling Bin', category: 'Furniture', unit: 'unit' },
+        { name: 'Coat Rack', category: 'Furniture', unit: 'unit' },
+        { name: 'Umbrella Stand', category: 'Furniture', unit: 'unit' },
+        { name: 'Plant Stand', category: 'Furniture', unit: 'unit' },
+        { name: 'Wall Clock', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Calendar', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Planner', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Time Tracker', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Desk Name Plate', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Badge Holder', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Lanyard', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Clipboard', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Portable Whiteboard', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Dry Erase Markers Set', category: 'Office Supplies', unit: 'set' },
+        { name: 'Eraser Cleaner', category: 'Office Supplies', unit: 'bottle' },
+        { name: 'Document Scanner', category: 'Electronics', unit: 'unit' },
+        { name: 'Fax Machine', category: 'Electronics', unit: 'unit' },
+        { name: 'Copier', category: 'Electronics', unit: 'unit' },
+        { name: 'Shredder', category: 'Electronics', unit: 'unit' },
+        { name: 'Laminator', category: 'Electronics', unit: 'unit' },
+        { name: 'Binding Machine', category: 'Electronics', unit: 'unit' },
+        { name: 'Paper Trimmer', category: 'Office Supplies', unit: 'unit' },
+        { name: 'Corner Rounder', category: 'Office Supplies', unit: 'unit' },
       ]
 
       const createdProducts = await Promise.all(
-        Array.from({ length: 50 }, (_, i) => {
+        Array.from({ length: 100 }, (_, i) => {
           const template = productTemplates[i % productTemplates.length]
           const date = getRandomDateInLast3Months()
           const variant = i >= productTemplates.length ? ` ${Math.floor(i / productTemplates.length) + 1}` : ''
@@ -236,25 +275,42 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 6. Create Product Suppliers (associate each product with a random supplier)
-      await Promise.all(
-        createdProducts.map((product, index) => {
-          const supplier = createdSuppliers[index % createdSuppliers.length]
+      // 6. Create Product Suppliers (associate products with suppliers - some products have multiple suppliers)
+      const productSupplierEntries: Array<{ productId: string; supplierId: string; price: number }> = []
+      for (let i = 0; i < createdProducts.length; i++) {
+        const product = createdProducts[i]
+        // Each product has 1-3 suppliers
+        const numSuppliers = Math.floor(Math.random() * 3) + 1 // 1-3 suppliers per product
+        const selectedSuppliers = createdSuppliers
+          .sort(() => Math.random() - 0.5)
+          .slice(0, numSuppliers)
+        
+        selectedSuppliers.forEach((supplier) => {
           const basePrice = (Math.random() * 900 + 10) // Random price between 10-910
+          productSupplierEntries.push({
+            productId: product.id,
+            supplierId: supplier.id,
+            price: Math.round(basePrice * 100) / 100, // Round to 2 decimals
+          })
+        })
+      }
+
+      await Promise.all(
+        productSupplierEntries.map((entry) => {
           return tx.productSupplier.create({
             data: {
-              productId: product.id,
-              supplierId: supplier.id,
-              price: Math.round(basePrice * 100) / 100, // Round to 2 decimals
+              productId: entry.productId,
+              supplierId: entry.supplierId,
+              price: entry.price,
             },
           })
         })
       )
 
-      // 7. Create Inventory (50 products × multiple warehouses = ~150 entries)
+      // 7. Create Inventory (100 products × multiple warehouses = ~300 entries)
       const inventoryEntries: Array<{ productId: string; warehouseId: string; quantity: number }> = []
       for (let i = 0; i < createdProducts.length; i++) {
-        const numWarehouses = Math.floor(Math.random() * 3) + 1 // 1-3 warehouses per product
+        const numWarehouses = Math.floor(Math.random() * 4) + 1 // 1-4 warehouses per product
         const selectedWarehouses = createdWarehouses
           .sort(() => Math.random() - 0.5)
           .slice(0, numWarehouses)
@@ -263,7 +319,7 @@ export async function POST(request: NextRequest) {
           inventoryEntries.push({
             productId: createdProducts[i].id,
             warehouseId: warehouse.id,
-            quantity: Math.floor(Math.random() * 100) + 1, // Random quantity 1-100
+              quantity: Math.floor(Math.random() * 200) + 10, // Random quantity 10-209
           })
         })
       }
@@ -283,10 +339,10 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 8. Create 50 Product Batches
-      const batchProducts = createdProducts.filter((_, i) => i % 3 === 0) // Every 3rd product has batches
+      // 8. Create 150 Product Batches
+      const batchProducts = createdProducts.filter((_, i) => i % 2 === 0) // Every 2nd product has batches
       const createdBatches = await Promise.all(
-        Array.from({ length: 50 }, (_, i) => {
+        Array.from({ length: 150 }, (_, i) => {
           const product = batchProducts[i % batchProducts.length]
           const warehouse = createdWarehouses[i % createdWarehouses.length]
           const date = getRandomDateInLast3Months()
@@ -311,7 +367,7 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 9. Create 50 Expiry Alerts (for batches expiring soon)
+      // 9. Create 100 Expiry Alerts (for batches expiring soon)
       // Filter batches that expire within 30 days from now
       const now = new Date()
       const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
@@ -319,13 +375,13 @@ export async function POST(request: NextRequest) {
         batch.expiryDate && batch.expiryDate <= thirtyDaysFromNow
       )
       
-      // Create alerts for expiring batches, and add more from other batches if needed to reach 50
+      // Create alerts for expiring batches, and add more from other batches if needed to reach 100
       let batchesForAlerts = [...expiringBatches]
-      if (batchesForAlerts.length < 50) {
+      if (batchesForAlerts.length < 100) {
         const remainingBatches = createdBatches.filter(b => !expiringBatches.includes(b))
-        batchesForAlerts = [...batchesForAlerts, ...remainingBatches.slice(0, 50 - batchesForAlerts.length)]
+        batchesForAlerts = [...batchesForAlerts, ...remainingBatches.slice(0, 100 - batchesForAlerts.length)]
       }
-      batchesForAlerts = batchesForAlerts.slice(0, 50) // Ensure exactly 50
+      batchesForAlerts = batchesForAlerts.slice(0, 100) // Ensure exactly 100
       
       await Promise.all(
         batchesForAlerts.map((batch) => {
@@ -342,9 +398,9 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 10. Create 50 Alerts (for low stock items)
+      // 10. Create 100 Alerts (for low stock items)
       await Promise.all(
-        Array.from({ length: 50 }, (_, i) => {
+        Array.from({ length: 100 }, (_, i) => {
           const product = createdProducts[i % createdProducts.length]
           const warehouse = createdWarehouses[i % createdWarehouses.length]
           const date = getRandomDateInLast3Months()
@@ -360,10 +416,10 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 11. Create 50 Purchase Orders
+      // 11. Create 150 Purchase Orders
       const poStatuses = [PurchaseOrderStatus.PENDING, PurchaseOrderStatus.SENT, PurchaseOrderStatus.RECEIVED]
       await Promise.all(
-        Array.from({ length: 50 }, (_, i) => {
+        Array.from({ length: 150 }, (_, i) => {
           const product = createdProducts[i % createdProducts.length]
           const supplier = createdSuppliers[i % createdSuppliers.length]
           const date = getRandomDateInLast3Months()
@@ -373,7 +429,7 @@ export async function POST(request: NextRequest) {
             data: {
               supplierId: supplier.id,
               productId: product.id,
-              quantity: Math.floor(Math.random() * 50) + 10, // Random between 10-59
+              quantity: Math.floor(Math.random() * 100) + 20, // Random between 20-119
               status: status,
               createdAt: date,
               updatedAt: date,
@@ -382,20 +438,56 @@ export async function POST(request: NextRequest) {
         })
       )
 
-      // 12. Create 50 Transactions
-      const transactionTypes = [TransactionType.IN, TransactionType.OUT, TransactionType.TRANSFER]
+      // 12. Create 300 Transactions (mix of all types including RETURN and USAGE)
+      const transactionTypes = [
+        TransactionType.IN, 
+        TransactionType.OUT, 
+        TransactionType.TRANSFER,
+        TransactionType.RETURN,
+        TransactionType.USAGE
+      ]
+      const reasons = [
+        'Stock adjustment',
+        'Received from supplier',
+        'Customer return',
+        'Defective item return',
+        'Field usage',
+        'Maintenance usage',
+        'Transfer for distribution',
+        'Stock replenishment',
+        'Emergency restock',
+        'Regular restock'
+      ]
+      const departments = [
+        'Field Operations',
+        'Maintenance',
+        'Quality Control',
+        'Warehouse',
+        'Distribution',
+        'Logistics',
+        'Operations',
+        'Procurement'
+      ]
+      
       await Promise.all(
-        Array.from({ length: 50 }, (_, i) => {
+        Array.from({ length: 300 }, (_, i) => {
           const product = createdProducts[i % createdProducts.length]
           const type = transactionTypes[i % transactionTypes.length]
           const date = getRandomDateInLast3Months()
+          const reason = reasons[i % reasons.length]
+          const department = (type === TransactionType.USAGE || type === TransactionType.RETURN) 
+            ? departments[i % departments.length] 
+            : undefined
+          
+          // Assign user - alternate between admin and user
+          const assignedUser = i % 2 === 0 ? admin : user
           
           let sourceWarehouseId: string | undefined
           let destinationWarehouseId: string | undefined
           
-          if (type === TransactionType.IN) {
+          if (type === TransactionType.IN || type === TransactionType.RETURN) {
             destinationWarehouseId = createdWarehouses[i % createdWarehouses.length].id
-          } else if (type === TransactionType.OUT) {
+          } else if (type === TransactionType.OUT || type === TransactionType.USAGE) {
             sourceWarehouseId = createdWarehouses[i % createdWarehouses.length].id
           } else {
             // TRANSFER
@@ -409,8 +501,11 @@ export async function POST(request: NextRequest) {
               productId: product.id,
               sourceWarehouseId,
               destinationWarehouseId,
-              quantity: Math.floor(Math.random() * 50) + 1, // Random 1-50
+              quantity: Math.floor(Math.random() * 100) + 1, // Random 1-100
               type: type,
+              userId: assignedUser.id,
+              reason: reason,
+              department: department || null,
               timestamp: date,
               createdAt: date,
             },
@@ -437,8 +532,20 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: 'Database seeded successfully with 50 records per model!',
+        message: 'Database seeded successfully with enhanced data!',
         data: counts,
+        summary: {
+          users: '2 default users',
+          warehouses: '50 warehouses',
+          suppliers: '50 suppliers',
+          products: '100 products',
+          inventory: `~300 inventory entries (100 products × 1-4 warehouses)`,
+          batches: '150 product batches',
+          purchaseOrders: '150 purchase orders',
+          transactions: '300 transactions (all types including RETURN and USAGE)',
+          alerts: '100 low stock alerts',
+          expiryAlerts: '100 expiry alerts',
+        },
         dateRange: 'Last 3 months',
         defaultCredentials: {
           admin: { email: 'admin@example.com', password: 'admin123' },

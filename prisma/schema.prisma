@@ -12,21 +12,21 @@ datasource db {
 
 // 1. Products
 model Product {
-  id            String   @id @default(cuid())
-  name          String
-  sku           String   @unique
-  category      String
-  unit          String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  sku       String   @unique
+  category  String
+  unit      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  inventory           Inventory[]
-  transactions        Transaction[]
-  productSettings     ProductSetting?
-  alerts              Alert[]
-  batches             ProductBatch[]
-  productSuppliers    ProductSupplier[]
-  purchaseOrders      PurchaseOrder[]
+  inventory        Inventory[]
+  transactions     Transaction[]
+  productSettings  ProductSetting?
+  alerts           Alert[]
+  batches          ProductBatch[]
+  productSuppliers ProductSupplier[]
+  purchaseOrders   PurchaseOrder[]
 }
 
 // 2. Warehouses
@@ -34,13 +34,22 @@ model Warehouse {
   id        String   @id @default(cuid())
   name      String
   location  String
+  type      String?  // e.g., "Regional", "Mobile", "Retail", "Temporary"
+  status    String?  @default("Active") // "Active", "Inactive"
+  parentId  String?  // For warehouse hierarchy
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  inventory              Inventory[]
-  sourceTransactions     Transaction[]     @relation("SourceWarehouse")
-  destinationTransactions Transaction[]    @relation("DestinationWarehouse")
-  batches                ProductBatch[]
+  inventory               Inventory[]
+  sourceTransactions      Transaction[]  @relation("SourceWarehouse")
+  destinationTransactions Transaction[]  @relation("DestinationWarehouse")
+  batches                 ProductBatch[]
+  parent                  Warehouse?    @relation("WarehouseHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children                 Warehouse[]   @relation("WarehouseHierarchy")
+
+  @@index([parentId])
+  @@index([status])
+  @@index([type])
 }
 
 // 3. Inventory
@@ -65,35 +74,43 @@ enum TransactionType {
   IN
   OUT
   TRANSFER
+  RETURN
+  USAGE
 }
 
 model Transaction {
-  id                    String          @id @default(cuid())
-  productId             String
-  sourceWarehouseId    String?
+  id                     String          @id @default(cuid())
+  productId              String
+  sourceWarehouseId      String?
   destinationWarehouseId String?
-  quantity              Int
-  type                  TransactionType
-  timestamp             DateTime        @default(now())
-  createdAt             DateTime        @default(now())
+  quantity               Int
+  type                   TransactionType
+  userId                 String?
+  reason                 String?
+  department             String?
+  timestamp              DateTime        @default(now())
+  createdAt              DateTime        @default(now())
 
-  product             Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  sourceWarehouse     Warehouse? @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  product              Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sourceWarehouse      Warehouse? @relation("SourceWarehouse", fields: [sourceWarehouseId], references: [id])
   destinationWarehouse Warehouse? @relation("DestinationWarehouse", fields: [destinationWarehouseId], references: [id])
+  user                 User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([productId])
   @@index([timestamp])
+  @@index([userId])
+  @@index([type])
 }
 
 // 5. Product Settings
 model ProductSetting {
-  id              String   @id @default(cuid())
-  productId       String   @unique
-  minStockLevel   Int      @default(0)
-  safetyStock     Int      @default(0)
-  leadTimeDays    Int      @default(7)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  productId     String   @unique
+  minStockLevel Int      @default(0)
+  safetyStock   Int      @default(0)
+  leadTimeDays  Int      @default(7)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
@@ -120,18 +137,18 @@ model Alert {
 
 // 7. Product Batches
 model ProductBatch {
-  id           String    @id @default(cuid())
-  productId    String
-  batchNumber  String
-  expiryDate   DateTime?
-  quantity     Int
-  warehouseId  String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  productId   String
+  batchNumber String
+  expiryDate  DateTime?
+  quantity    Int
+  warehouseId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  expiryAlerts   ExpiryAlert[]
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  expiryAlerts ExpiryAlert[]
 
   @@unique([productId, batchNumber, warehouseId])
   @@index([productId])
@@ -155,14 +172,14 @@ model ExpiryAlert {
 
 // 9. Suppliers
 model Supplier {
-  id           String   @id @default(cuid())
-  name         String
+  id            String   @id @default(cuid())
+  name          String
   contactPerson String?
-  phone        String?
-  email        String?
-  address      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  phone         String?
+  email         String?
+  address       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   productSuppliers ProductSupplier[]
   purchaseOrders   PurchaseOrder[]
@@ -219,10 +236,12 @@ model User {
   id        String   @id @default(cuid())
   name      String
   email     String   @unique
-  password  String
+  password  String?  // Optional for OAuth users
   role      UserRole @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
 
   @@index([email])
 }

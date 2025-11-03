@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
         product: true,
         sourceWarehouse: true,
         destinationWarehouse: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
       },
       orderBy: { timestamp: 'desc' },
       take: limit,

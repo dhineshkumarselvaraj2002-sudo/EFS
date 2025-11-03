@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
-import { Bell, Check } from 'lucide-react'
+import { Bell, Check, CheckCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -39,7 +39,35 @@ export function NotificationBell() {
   })
 
   const markAsRead = useMutation({
-    mutationFn: async ({ id, type }: { id: string; type: 'stock' | 'expiry' }) => {
+    mutationFn: async ({ id, type, markAll }: { id?: string; type?: 'stock' | 'expiry'; markAll?: boolean }) => {
+      if (markAll) {
+        // Mark all alerts of both types
+        const [stockRes, expiryRes] = await Promise.all([
+          fetch('/api/alerts', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ markAll: true, status: 'READ' }),
+          }),
+          fetch('/api/expiry-alerts', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ markAll: true, status: 'READ' }),
+          }),
+        ])
+        
+        if (!stockRes.ok || !expiryRes.ok) {
+          const stockError = await stockRes.json().catch(() => ({}))
+          const expiryError = await expiryRes.json().catch(() => ({}))
+          throw new Error(stockError.error || expiryError.error || 'Failed to mark all alerts as read')
+        }
+        
+        return { stock: await stockRes.json(), expiry: await expiryRes.json() }
+      }
+
+      if (!id || !type) {
+        throw new Error('Missing required fields')
+      }
+
       const endpoint = type === 'stock' ? '/api/alerts' : '/api/expiry-alerts'
       const res = await fetch(endpoint, {
         method: 'PUT',
@@ -53,26 +81,39 @@ export function NotificationBell() {
       return res.json()
     },
     onSuccess: (_, variables) => {
-      // Optimistically update the correct query based on alert type
-      if (variables.type === 'stock') {
+      if (variables.markAll) {
+        // Mark all alerts as read in the cache
         queryClient.setQueryData(['alerts'], (oldData: any) => {
           if (!oldData) return oldData
-          return oldData.map((alert: any) =>
-            alert.id === variables.id ? { ...alert, status: 'READ' } : alert
-          )
+          return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
         })
-      } else {
         queryClient.setQueryData(['expiry-alerts'], (oldData: any) => {
           if (!oldData) return oldData
-          return oldData.map((alert: any) =>
-            alert.id === variables.id ? { ...alert, status: 'READ' } : alert
-          )
+          return oldData.map((alert: any) => ({ ...alert, status: 'READ' }))
         })
+        toast.success('All notifications marked as read')
+      } else {
+        // Optimistically update the correct query based on alert type
+        if (variables.type === 'stock') {
+          queryClient.setQueryData(['alerts'], (oldData: any) => {
+            if (!oldData) return oldData
+            return oldData.map((alert: any) =>
+              alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+            )
+          })
+        } else if (variables.type === 'expiry') {
+          queryClient.setQueryData(['expiry-alerts'], (oldData: any) => {
+            if (!oldData) return oldData
+            return oldData.map((alert: any) =>
+              alert.id === variables.id ? { ...alert, status: 'READ' } : alert
+            )
+          })
+        }
+        toast.success('Notification marked as read')
       }
       // Invalidate to ensure consistency
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
       queryClient.invalidateQueries({ queryKey: ['expiry-alerts'] })
-      toast.success('Notification marked as read')
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to mark notification as read')
@@ -99,12 +140,12 @@ export function NotificationBell() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
+        <Button variant="ghost" size="icon" className="relative h-10 w-10">
+          <Bell className="h-6 w-6" />
           {totalUnread > 0 && (
             <Badge 
               variant="destructive" 
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+              className="absolute -top-0.5 -right-0.5 h-5 w-5 flex items-center justify-center p-0 text-xs"
             >
               {totalUnread > 9 ? '9+' : totalUnread}
             </Badge>
@@ -113,13 +154,32 @@ export function NotificationBell() {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-0" align="end">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h4 className="font-semibold">Notifications</h4>
-          {totalUnread > 0 && (
-            <Badge variant="destructive" className="text-xs">
-              {totalUnread} new
-            </Badge>
-          )}
+        <div className="flex items-center justify-between border-b px-4 py-3 gap-3">
+          <h4 className="font-semibold text-sm">Notifications</h4>
+          <div className="flex items-center gap-2">
+            {totalUnread > 0 && (
+              <>
+                <Badge variant="destructive" className="text-xs">
+                  {totalUnread} new
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    markAsRead.mutate({ markAll: true })
+                  }}
+                  disabled={markAsRead.isPending}
+                  title="Mark all notifications as read"
+                >
+                  <CheckCheck className="h-3.5 w-3.5 mr-1.5" />
+                  Mark all read
+                </Button>
+              </>
+            )}
+          </div>
         </div>
         <div className="max-h-[400px] overflow-y-auto">
           {recentAlerts.length === 0 ? (
@@ -138,16 +198,16 @@ export function NotificationBell() {
                     className="block px-4 py-3 hover:bg-accent transition-colors"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 space-y-1">
                         <p className="text-sm font-medium truncate">
                           {alert.type === 'stock' 
                             ? alert.product?.name 
                             : alert.batch?.product?.name}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                        <p className="text-xs text-muted-foreground line-clamp-2">
                           {alert.message}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground">
                           {format(new Date(alert.createdAt), 'MMM d, h:mm a')}
                         </p>
                       </div>
@@ -158,11 +218,12 @@ export function NotificationBell() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                           onClick={(e) => handleMarkAsRead(e, alert.id, alert.type)}
                           disabled={markAsRead.isPending}
+                          title="Mark as read"
                         >
-                          <Check className="h-3 w-3" />
+                          <Check className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -172,17 +233,15 @@ export function NotificationBell() {
             </div>
           )}
         </div>
-        {recentAlerts.length > 0 && (
-          <div className="border-t px-4 py-2">
-            <Button
-              variant="ghost"
-              className="w-full justify-center text-xs"
-              onClick={() => router.push('/dashboard/alerts')}
-            >
-              View all notifications
-            </Button>
-          </div>
-        )}
+        <div className="border-t px-4 py-2">
+          <Button
+            variant="ghost"
+            className="w-full justify-center text-xs"
+            onClick={() => router.push('/dashboard/alerts')}
+          >
+            View all notifications
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   )

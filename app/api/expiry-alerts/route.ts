@@ -112,7 +112,17 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, status } = body
+    const { id, status, markAll } = body
+
+    if (markAll && status) {
+      // Mark all expiry alerts as read
+      const result = await prisma.expiryAlert.updateMany({
+        where: { status: 'NEW' },
+        data: { status: status as AlertStatus },
+      })
+
+      return NextResponse.json({ count: result.count, message: 'All expiry alerts marked as read' })
+    }
 
     if (!id || !status) {
       return NextResponse.json(

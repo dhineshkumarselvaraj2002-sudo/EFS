@@ -15,6 +15,13 @@ export async function GET() {
         _count: {
           select: {
             inventory: true,
+            children: true,
+          },
+        },
+        parent: {
+          select: {
+            id: true,
+            name: true,
           },
         },
       },
@@ -38,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, location } = body
+    const { name, location, type, status, parentId } = body
 
     if (!name || !location) {
       return NextResponse.json(
@@ -47,10 +54,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate parentId if provided
+    if (parentId) {
+      const parent = await prisma.warehouse.findUnique({
+        where: { id: parentId },
+      })
+      if (!parent) {
+        return NextResponse.json(
+          { error: 'Parent warehouse not found' },
+          { status: 400 }
+        )
+      }
+    }
+
     const warehouse = await prisma.warehouse.create({
       data: {
         name,
         location,
+        type: type || null,
+        status: status || 'Active',
+        parentId: parentId || null,
       },
     })
 

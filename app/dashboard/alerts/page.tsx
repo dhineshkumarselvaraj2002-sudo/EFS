@@ -27,6 +27,7 @@ import { toast as sonnerToast } from 'sonner'
 import { useErrorToast } from '@/lib/utils/toast-helpers'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PageBreadcrumb } from '@/components/page-breadcrumb'
+import { TableSkeleton } from '@/components/skeleton-table'
 import { DataTableFilters, FilterOption } from '@/components/filters/data-table-filters'
 import { useMemo, useState, useEffect } from 'react'
 import {
@@ -178,12 +179,15 @@ export default function AlertsPage() {
   }, [filters, activeTab])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Alerts</h1>
-          <p className="text-muted-foreground">Monitor stock and expiry alerts</p>
+          <div className="flex items-center gap-3 mb-3">
+            <Bell className="h-6 w-6 md:h-7 md:w-7 text-primary" />
+            <h1 className="text-3xl md:text-4xl font-bold">Alerts</h1>
+          </div>
+          <p className="text-base md:text-lg text-muted-foreground ml-9">Monitor stock and expiry alerts</p>
         </div>
         <Button
           onClick={() => checkExpiryAlerts.mutate()}
@@ -231,7 +235,7 @@ export default function AlertsPage() {
           <Card>
             <CardContent className="p-0">
               {alertsLoading ? (
-                <div className="p-6 text-center">Loading...</div>
+                <TableSkeleton rows={8} cols={5} />
               ) : filteredAlerts.length === 0 ? (
                 <div className="p-12">
                   <Empty>
@@ -252,23 +256,23 @@ export default function AlertsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Message</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="text-base font-semibold">Date</TableHead>
+                      <TableHead className="text-base font-semibold">Product</TableHead>
+                      <TableHead className="text-base font-semibold">Message</TableHead>
+                      <TableHead className="text-base font-semibold">Status</TableHead>
+                      <TableHead className="text-base font-semibold">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedAlerts.map((alert: any) => (
                       <TableRow key={alert.id}>
-                        <TableCell>
+                        <TableCell className="text-base">
                           {format(new Date(alert.createdAt), 'PPp')}
                         </TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="font-medium text-base">
                           {alert.product?.name}
                         </TableCell>
-                        <TableCell>{alert.message}</TableCell>
+                        <TableCell className="text-base">{alert.message}</TableCell>
                         <TableCell>
                           {alert.status === 'NEW' ? (
                             <Badge variant="destructive">New</Badge>
@@ -301,7 +305,7 @@ export default function AlertsPage() {
           <Card>
             <CardContent className="p-0">
               {expiryLoading ? (
-                <div className="p-6 text-center">Loading...</div>
+                <TableSkeleton rows={8} cols={5} />
               ) : filteredAlerts.length === 0 ? (
                 <div className="p-12">
                   <Empty>
@@ -322,25 +326,25 @@ export default function AlertsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Batch</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Message</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="text-base font-semibold">Date</TableHead>
+                      <TableHead className="text-base font-semibold">Batch</TableHead>
+                      <TableHead className="text-base font-semibold">Product</TableHead>
+                      <TableHead className="text-base font-semibold">Message</TableHead>
+                      <TableHead className="text-base font-semibold">Status</TableHead>
+                      <TableHead className="text-base font-semibold">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedAlerts.map((alert: any) => (
                       <TableRow key={alert.id}>
-                        <TableCell>
+                        <TableCell className="text-base">
                           {format(new Date(alert.createdAt), 'PPp')}
                         </TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="font-medium text-base">
                           {alert.batch?.batchNumber}
                         </TableCell>
-                        <TableCell>{alert.batch?.product?.name}</TableCell>
-                        <TableCell>{alert.message}</TableCell>
+                        <TableCell className="text-base">{alert.batch?.product?.name}</TableCell>
+                        <TableCell className="text-base">{alert.message}</TableCell>
                         <TableCell>
                           {alert.status === 'NEW' ? (
                             <Badge variant="destructive">New</Badge>
@@ -370,7 +374,7 @@ export default function AlertsPage() {
 
           {filteredAlerts.length > 0 && totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
-              <div className="text-sm text-muted-foreground">
+              <div className="text-base text-muted-foreground">
                 Showing {startIndex + 1} to {Math.min(endIndex, filteredAlerts.length)} of {filteredAlerts.length} alerts
               </div>
               <Pagination>
@@ -385,21 +389,37 @@ export default function AlertsPage() {
                       className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                     />
                   </PaginationItem>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                    <PaginationItem key={page}>
-                      <PaginationLink
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          setCurrentPage(page)
-                        }}
-                        isActive={currentPage === page}
-                        className="cursor-pointer"
-                      >
-                        {page}
-                      </PaginationLink>
-                    </PaginationItem>
-                  ))}
+                  {(() => {
+                    // Calculate which 5 pages to show
+                    let startPage = Math.max(1, currentPage - 2)
+                    let endPage = Math.min(totalPages, startPage + 4)
+                    
+                    // Adjust if we're near the end
+                    if (endPage - startPage < 4) {
+                      startPage = Math.max(1, endPage - 4)
+                    }
+                    
+                    const pages = []
+                    for (let i = startPage; i <= endPage; i++) {
+                      pages.push(i)
+                    }
+                    
+                    return pages.map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setCurrentPage(page)
+                          }}
+                          isActive={currentPage === page}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))
+                  })()}
                   <PaginationItem>
                     <PaginationNext 
                       href="#" 

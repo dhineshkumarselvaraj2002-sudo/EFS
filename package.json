@@ -8,7 +8,9 @@
     "lint": "eslint .",
     "start": "next start",
     "postinstall": "prisma generate",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "seed:100": "npx tsx scripts/seed-100-per-model.ts",
+    "db:clear": "npx tsx scripts/clear-db.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "latest",
@@ -65,6 +67,8 @@
     "next-auth": "^4.24.13",
     "next-themes": "latest",
     "nodemailer": "^7.0.10",
+    "pusher": "^5.2.0",
+    "pusher-js": "^8.4.0",
     "react": "^19",
     "react-day-picker": "9.8.0",
     "react-dom": "^19",

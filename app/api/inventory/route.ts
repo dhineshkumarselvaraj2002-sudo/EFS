@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
-import { TransactionType, PurchaseOrderStatus } from '@prisma/client'
+import { TransactionType, PurchaseOrderStatus, AlertStatus } from '@prisma/client'
+import { broadcastInventoryUpdate } from '@/lib/pusher'
+import { createLowStockAlerts } from '@/lib/utils/check-stock-alerts'
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +33,23 @@ export async function GET(request: NextRequest) {
       orderBy: { updatedAt: 'desc' },
     })
 
-    return NextResponse.json(inventory)
+    // Calculate global totals for each product
+    const globalTotals = await prisma.inventory.groupBy({
+      by: ['productId'],
+      _sum: {
+        quantity: true,
+      },
+    })
+
+    const totalsMap = new Map(globalTotals.map(t => [t.productId, t._sum.quantity || 0]))
+
+    // Add global total to each inventory item
+    const inventoryWithTotals = inventory.map(inv => ({
+      ...inv,
+      globalTotal: totalsMap.get(inv.productId) || 0,
+    }))
+
+    return NextResponse.json(inventoryWithTotals)
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch inventory' },
@@ -48,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { productId, warehouseId, quantity, type, batchNumber, expiryDate } = body
+    const { productId, warehouseId, quantity, type, batchNumber, expiryDate, reason, department, supplierId, userId: selectedUserId } = body
 
     if (!productId || !warehouseId || quantity === undefined) {
       return NextResponse.json(
@@ -71,8 +89,56 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get the current user ID from database (handles stale session after DB reset)
+    // This works for both email/password and OAuth authentication methods
+    let currentUserId: string | null = null
+    if (session.user?.email) {
+      // Primary method: Look up by email (most reliable, works after DB reset)
+      const dbUser = await prisma.user.findUnique({
+        where: { email: session.user.email },
+      })
+      currentUserId = dbUser?.id || null
+    } else if (session.user?.id) {
+      // Fallback: Try to verify session.user.id exists in DB
+      const dbUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+      })
+      currentUserId = dbUser?.id || null
+    }
+
     // Use transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
+      // Determine userId: use selectedUserId for OUT, or currentUserId for IN (or fallback)
+      let transactionUserId = currentUserId
+      
+      if (type === TransactionType.OUT && selectedUserId) {
+        // For Stock Out, use the selected user
+        const selectedUser = await tx.user.findUnique({
+          where: { id: selectedUserId },
+        })
+        if (selectedUser) {
+          transactionUserId = selectedUserId
+        }
+      }
+      
+      // Ensure we have a valid userId - create a system user if needed
+      if (!transactionUserId) {
+        // Try to find any admin user as fallback
+        const adminUser = await tx.user.findFirst({
+          where: { role: 'ADMIN' },
+        })
+        if (adminUser) {
+          transactionUserId = adminUser.id
+        } else {
+          // If no admin found, use first user as last resort
+          const firstUser = await tx.user.findFirst()
+          if (firstUser) {
+            transactionUserId = firstUser.id
+          } else {
+            throw new Error('No user found in database. Cannot create transaction without a user.')
+          }
+        }
+      }
       // Find or create inventory record
       let inventory = await tx.inventory.findUnique({
         where: {
@@ -167,7 +233,26 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Create transaction record
+      // Build reason with supplier/user info
+      let transactionReason = reason
+      if (!transactionReason) {
+        if (type === TransactionType.IN) {
+          // For Stock In, include supplier name if provided
+          if (supplierId) {
+            const supplier = await tx.supplier.findUnique({
+              where: { id: supplierId },
+              select: { name: true },
+            })
+            transactionReason = supplier ? `Stock In from ${supplier.name}` : 'Stock In'
+          } else {
+            transactionReason = 'Stock In'
+          }
+        } else {
+          transactionReason = 'Stock Out'
+        }
+      }
+
+      // Create transaction record with user tracking
       const transaction = await tx.transaction.create({
         data: {
           productId,
@@ -175,26 +260,47 @@ export async function POST(request: NextRequest) {
           destinationWarehouseId: type === TransactionType.IN ? warehouseId : undefined,
           quantity,
           type,
+          userId: transactionUserId,
+          reason: transactionReason,
+          department: department || null,
         },
       })
 
-      // Check for low stock alerts and auto-create purchase order
-      const productSettings = await tx.productSetting.findUnique({
-        where: { productId },
+      // Check for low stock alerts and auto-create purchase order (after transaction is committed)
+      // We'll do this outside the transaction to avoid rollback issues
+
+      return { inventory, transaction }
+    })
+
+    // Broadcast inventory update via WebSocket
+    await broadcastInventoryUpdate({
+      type: 'adjustment',
+      inventoryId: result.inventory.id,
+      productId: result.inventory.productId,
+      warehouseId: result.inventory.warehouseId,
+      quantity: result.inventory.quantity,
+      message: `Stock ${type === TransactionType.IN ? 'added' : 'removed'}: ${result.inventory.quantity} units`,
+    })
+
+    // Check for low stock alerts and auto-create purchase order (outside transaction)
+    // This prevents transaction rollback if PO creation fails
+    try {
+      const productSettings = await prisma.productSetting.findUnique({
+        where: { productId: result.inventory.productId },
       })
 
       if (productSettings) {
         // Calculate total inventory across all warehouses
-        const allInventories = await tx.inventory.findMany({
-          where: { productId },
+        const allInventories = await prisma.inventory.findMany({
+          where: { productId: result.inventory.productId },
         })
         const totalQuantity = allInventories.reduce((sum, inv) => sum + inv.quantity, 0)
 
         if (totalQuantity < productSettings.minStockLevel) {
           // Check if alert already exists
-          const existingAlert = await tx.alert.findFirst({
+          const existingAlert = await prisma.alert.findFirst({
             where: {
-              productId,
+              productId: result.inventory.productId,
               status: 'NEW',
               message: {
                 contains: 'Low stock',
@@ -203,9 +309,9 @@ export async function POST(request: NextRequest) {
           })
 
           if (!existingAlert) {
-            await tx.alert.create({
+            await prisma.alert.create({
               data: {
-                productId,
+                productId: result.inventory.productId,
                 message: `Low stock alert: ${totalQuantity} units remaining (min: ${productSettings.minStockLevel})`,
                 status: 'NEW',
               },
@@ -213,32 +319,34 @@ export async function POST(request: NextRequest) {
           }
 
           // Auto-create purchase order if below minimum stock
-          // Check if there's already a pending PO
-          const existingPO = await tx.purchaseOrder.findFirst({
+          const existingPO = await prisma.purchaseOrder.findFirst({
             where: {
-              productId,
+              productId: result.inventory.productId,
               status: PurchaseOrderStatus.PENDING,
             },
           })
 
           if (!existingPO) {
-            // Get supplier for the product
-            const productSupplier = await tx.productSupplier.findFirst({
-              where: { productId },
+            // Get all suppliers linked to the product and choose the one with minimum cost
+            const productSuppliers = await prisma.productSupplier.findMany({
+              where: { productId: result.inventory.productId },
+              orderBy: {
+                price: 'asc', // Order by price ascending (cheapest first)
+              },
             })
 
-            if (productSupplier) {
-              // Calculate reorder quantity using predictive formula:
-              // purchase_order_qty = (avg_daily_usage * lead_time_days) + safety_stock - current_stock
+            if (productSuppliers && productSuppliers.length > 0) {
+              // Choose supplier with minimum cost
+              const productSupplier = productSuppliers[0]
               
-              // Calculate average daily usage from historical OUT transactions
-              const lookbackDays = 90 // Use last 90 days for calculation
+              // Calculate reorder quantity using predictive formula
+              const lookbackDays = 90
               const startDate = new Date()
               startDate.setDate(startDate.getDate() - lookbackDays)
               
-              const outTransactions = await tx.transaction.findMany({
+              const outTransactions = await prisma.transaction.findMany({
                 where: {
-                  productId,
+                  productId: result.inventory.productId,
                   type: TransactionType.OUT,
                   timestamp: {
                     gte: startDate,
@@ -250,52 +358,61 @@ export async function POST(request: NextRequest) {
                 },
               })
 
-              // Calculate total OUT quantity and days with activity
               const totalOutQuantity = outTransactions.reduce((sum, tx) => sum + tx.quantity, 0)
               const daysWithActivity = Math.max(
                 Math.ceil((new Date().getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)),
-                1 // At least 1 day to avoid division by zero
+                1
               )
               
-              // Average daily usage = total quantity / number of days
               const avgDailyUsage = totalOutQuantity / daysWithActivity
-
-              // Get lead time and safety stock from product settings (with defaults)
               const leadTimeDays = productSettings.leadTimeDays || 7
               const safetyStock = productSettings.safetyStock || 0
 
-              // Calculate reorder quantity using predictive formula
               let reorderQuantity = Math.ceil(
                 (avgDailyUsage * leadTimeDays) + safetyStock - totalQuantity
               )
 
-              // Fallback: If no historical data or calculation results in negative/zero,
-              // use simple multiplier as before
               if (reorderQuantity <= 0 || totalOutQuantity === 0) {
                 reorderQuantity = productSettings.minStockLevel * 2
               }
 
-              // Ensure minimum reorder quantity is at least minStockLevel
               if (reorderQuantity < productSettings.minStockLevel) {
                 reorderQuantity = productSettings.minStockLevel
               }
 
-              // Create purchase order
-              await tx.purchaseOrder.create({
-                data: {
-                  supplierId: productSupplier.supplierId,
-                  productId,
-                  quantity: reorderQuantity,
-                  status: PurchaseOrderStatus.PENDING,
-                },
-              })
+              try {
+                await prisma.purchaseOrder.create({
+                  data: {
+                    supplierId: productSupplier.supplierId,
+                    productId: result.inventory.productId,
+                    quantity: reorderQuantity,
+                    status: PurchaseOrderStatus.PENDING,
+                  },
+                })
+
+                await prisma.alert.create({
+                  data: {
+                    productId: result.inventory.productId,
+                    message: `Auto-generated purchase order: ${reorderQuantity} units (Status: PENDING)`,
+                    status: 'NEW',
+                  },
+                })
+
+                console.log(`Auto-generated PO for product ${result.inventory.productId}: ${reorderQuantity} units from supplier ${productSupplier.supplierId}`)
+              } catch (poError: any) {
+                console.error(`Failed to auto-generate PO for product ${result.inventory.productId}:`, poError)
+              }
             }
           }
         }
       }
+    } catch (alertError: any) {
+      console.error('Error in post-transaction alert/PO creation:', alertError)
+      // Don't fail the request if alert/PO creation fails
+    }
 
-      return { inventory, transaction }
-    })
+    // Check for low stock alerts
+    await createLowStockAlerts()
 
     return NextResponse.json(result, { status: 201 })
   } catch (error: any) {

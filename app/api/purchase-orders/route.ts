@@ -23,7 +23,23 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     })
 
-    return NextResponse.json(purchaseOrders)
+    // Add pricing information from ProductSupplier
+    const purchaseOrdersWithPricing = await Promise.all(
+      purchaseOrders.map(async (po) => {
+        const productSupplier = await prisma.productSupplier.findFirst({
+          where: {
+            productId: po.productId,
+            supplierId: po.supplierId,
+          },
+        })
+        return {
+          ...po,
+          unitPrice: productSupplier?.price || null,
+        }
+      })
+    )
+
+    return NextResponse.json(purchaseOrdersWithPricing)
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch purchase orders' },
@@ -77,18 +93,24 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Get supplier for the product
-      const productSupplier = await prisma.productSupplier.findFirst({
+      // Get all suppliers linked to the product and choose the one with minimum cost
+      const productSuppliers = await prisma.productSupplier.findMany({
         where: { productId },
         include: { supplier: true },
+        orderBy: {
+          price: 'asc', // Order by price ascending (cheapest first)
+        },
       })
 
-      if (!productSupplier) {
+      if (!productSuppliers || productSuppliers.length === 0) {
         return NextResponse.json(
           { error: 'No supplier associated with this product' },
           { status: 400 }
         )
       }
+
+      // Choose supplier with minimum cost
+      const productSupplier = productSuppliers[0]
 
       // Calculate reorder quantity (typically minStockLevel * 2 or a fixed multiplier)
       const reorderQuantity = productSettings.minStockLevel * 2
@@ -129,16 +151,68 @@ export async function POST(request: NextRequest) {
     }
 
     // Manual PO creation
-    if (!supplierId || !productId || !quantity) {
+    if (!productId || !quantity) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Product and quantity are required' },
         { status: 400 }
       )
     }
 
+    // Check if product has any linked suppliers
+    const productSuppliers = await prisma.productSupplier.findMany({
+      where: { productId },
+      orderBy: {
+        price: 'asc', // Order by price ascending (cheapest first)
+      },
+      include: {
+        supplier: true,
+      },
+    })
+
+    if (!productSuppliers || productSuppliers.length === 0) {
+      return NextResponse.json(
+        { 
+          error: 'This product has no linked suppliers. Please link a supplier to this product before creating a purchase order.',
+          code: 'NO_SUPPLIERS_LINKED'
+        },
+        { status: 400 }
+      )
+    }
+
+    // If supplierId is provided, validate it's linked. Otherwise, use the cheapest supplier
+    let selectedSupplierId = supplierId
+    
+    if (!selectedSupplierId) {
+      // Auto-select cheapest supplier if no supplier specified
+      selectedSupplierId = productSuppliers[0].supplierId
+    } else {
+      // Validate that the provided supplier is linked to the product
+      const isValidSupplier = productSuppliers.some(ps => ps.supplierId === selectedSupplierId)
+      
+      if (!isValidSupplier) {
+        return NextResponse.json(
+          { 
+            error: 'The selected supplier is not linked to this product. Please select a linked supplier or we can use the cheapest linked supplier.',
+            code: 'SUPPLIER_NOT_LINKED',
+            availableSuppliers: productSuppliers.map(ps => ({
+              id: ps.supplierId,
+              name: ps.supplier.name,
+              price: ps.price,
+            })),
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Use the cheapest supplier if multiple are available and none was specified
+    if (productSuppliers.length > 1 && !supplierId) {
+      selectedSupplierId = productSuppliers[0].supplierId
+    }
+
     const purchaseOrder = await prisma.purchaseOrder.create({
       data: {
-        supplierId,
+        supplierId: selectedSupplierId,
         productId,
         quantity,
         status: PurchaseOrderStatus.PENDING,
@@ -149,7 +223,11 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    return NextResponse.json(purchaseOrder, { status: 201 })
+    return NextResponse.json({
+      ...purchaseOrder,
+      autoSelectedSupplier: !supplierId && productSuppliers.length > 1,
+      selectedReason: !supplierId ? 'Auto-selected cheapest supplier' : 'Manual selection',
+    }, { status: 201 })
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || 'Failed to create purchase order' },

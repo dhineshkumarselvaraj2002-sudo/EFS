@@ -21,6 +21,8 @@ import {
 import { getInitials, getUserAvatarUrl } from '@/lib/utils/user-helpers'
 import { signOut } from 'next-auth/react'
 import { User, LogOut, Settings } from 'lucide-react'
+import { toast } from 'sonner'
+import { PageTransition } from '@/components/page-transition'
 
 export default function DashboardLayout({
   children,
@@ -55,17 +57,20 @@ export default function DashboardLayout({
     <SidebarProvider>
       <AppSidebar />
       <main className="w-full">
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-6">
           <SidebarTrigger />
           <Separator orientation="vertical" className="h-4" />
           <div className="flex-1" />
-          <NotificationBell />
-          <ThemeToggle />
+          <div className="flex items-center gap-4">
+            <NotificationBell />
+            <ThemeToggle />
+          </div>
           {session?.user && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                  <Avatar className="h-8 w-8">
+            <div className="ml-4">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <Avatar className="h-10 w-10">
                     <AvatarImage 
                       src={getUserAvatarUrl(session.user.email, (session.user as any).image)} 
                       alt={session.user.name || 'User'} 
@@ -94,7 +99,12 @@ export default function DashboardLayout({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() => signOut({ callbackUrl: '/login' })}
+                  onClick={async () => {
+                    toast.success('Logging out...', { duration: 1000 })
+                    setTimeout(() => {
+                      signOut({ callbackUrl: '/login' })
+                    }, 500)
+                  }}
                   className="text-destructive cursor-pointer"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
@@ -102,9 +112,12 @@ export default function DashboardLayout({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           )}
         </header>
-        <div className="p-6">{children}</div>
+        <PageTransition>
+          <div className="p-8 md:p-10">{children}</div>
+        </PageTransition>
       </main>
     </SidebarProvider>
   )

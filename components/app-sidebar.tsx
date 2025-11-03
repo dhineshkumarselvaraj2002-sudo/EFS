@@ -42,46 +42,66 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-const navItems = [
+const navSections = [
   {
-    title: "Dashboard",
-    url: "/dashboard",
-    icon: LayoutDashboard,
+    label: "Overview",
+    items: [
+      {
+        title: "Dashboard",
+        url: "/dashboard",
+        icon: LayoutDashboard,
+      },
+    ],
   },
   {
-    title: "Products",
-    url: "/dashboard/products",
-    icon: Package,
+    label: "Inventory Management",
+    items: [
+      {
+        title: "Products",
+        url: "/dashboard/products",
+        icon: Package,
+      },
+      {
+        title: "Warehouses",
+        url: "/dashboard/warehouses",
+        icon: Warehouse,
+      },
+      {
+        title: "Inventory",
+        url: "/dashboard/inventory",
+        icon: PackageSearch,
+      },
+    ],
   },
   {
-    title: "Warehouses",
-    url: "/dashboard/warehouses",
-    icon: Warehouse,
+    label: "Operations",
+    items: [
+      {
+        title: "Transactions",
+        url: "/dashboard/transactions",
+        icon: ArrowLeftRight,
+      },
+      {
+        title: "Purchase Orders",
+        url: "/dashboard/purchase-orders",
+        icon: ShoppingCart,
+      },
+      {
+        title: "Suppliers",
+        url: "/dashboard/suppliers",
+        icon: Users,
+      },
+    ],
   },
   {
-    title: "Inventory",
-    url: "/dashboard/inventory",
-    icon: PackageSearch,
-  },
-  {
-    title: "Transactions",
-    url: "/dashboard/transactions",
-    icon: ArrowLeftRight,
-  },
-  {
-    title: "Suppliers",
-    url: "/dashboard/suppliers",
-    icon: Users,
-  },
-  {
-    title: "Purchase Orders",
-    url: "/dashboard/purchase-orders",
-    icon: ShoppingCart,
-  },
-  {
-    title: "Alerts",
-    url: "/dashboard/alerts",
-    icon: Bell,
+    label: "Alerts & Notifications",
+    items: [
+      {
+        title: "Alerts",
+        url: "/dashboard/alerts",
+        icon: Bell,
+      },
+    ],
   },
 ]
 
@@ -99,54 +119,58 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <Link href="/dashboard">
-                <Package className="!size-5" />
-                <span className="text-base font-semibold">Inventory System</span>
+                <Package className="!size-6" />
+                <span className="text-lg md:text-xl font-semibold">Inventory System</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = pathname === item.url
-                return (
-                  <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={isActive}>
-                      <Link href={item.url}>
-                        <Icon />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navSections.map((section, sectionIndex) => (
+          <SidebarGroup key={section.label}>
+            <SidebarGroupLabel className="text-base font-semibold mb-3 mt-2">
+              {section.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = pathname === item.url
+                  return (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton asChild isActive={isActive} className="text-base py-2.5 px-3">
+                        <Link href={item.url} className="flex items-center gap-3">
+                          <Icon className="h-5 w-5" />
+                          <span className="text-base">{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Link href="/dashboard/settings">
-                <Settings />
-                <span>Settings</span>
+        <SidebarMenu className="space-y-2">
+          {/* <SidebarMenuItem>
+            <SidebarMenuButton asChild className="text-base py-2.5 px-3">
+              <Link href="/dashboard/settings" className="flex items-center gap-3">
+                <Settings className="h-5 w-5" />
+                <span className="text-base">Settings</span>
               </Link>
             </SidebarMenuButton>
-          </SidebarMenuItem>
+          </SidebarMenuItem> */}
           {session?.user && (
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => signOut({ callbackUrl: '/login' })}
-                className="text-destructive"
+                className="text-destructive text-base py-2.5 px-3"
               >
-                <LogOut />
-                <span>Logout</span>
+                <LogOut className="h-5 w-5" />
+                <span className="text-base">Logout</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
@@ -154,8 +178,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="flex w-full items-center gap-3 px-2 py-1.5 rounded-md hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
-                    <Avatar className="h-8 w-8">
+                  <button className="flex w-full items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+                    <Avatar className="h-10 w-10">
                       <AvatarImage 
                         src={getUserAvatarUrl(session.user.email, (session.user as any).image)} 
                         alt={session.user.name || 'User'} 
@@ -165,33 +189,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0 text-left">
-                      <div className="font-medium text-foreground truncate text-xs">{session.user.name}</div>
+                      <div className="font-medium text-foreground truncate text-sm">{session.user.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{session.user.email}</div>
                     </div>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuContent align="end" className="w-64">
                   <DropdownMenuLabel>
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{session.user.name}</p>
-                      <p className="text-xs leading-none text-muted-foreground">
+                    <div className="flex flex-col space-y-1.5">
+                      <p className="text-base font-medium leading-none">{session.user.name}</p>
+                      <p className="text-sm leading-none text-muted-foreground">
                         {session.user.email}
                       </p>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/dashboard/settings" className="cursor-pointer">
-                      <Settings className="mr-2 h-4 w-4" />
+                  <DropdownMenuItem asChild className="text-base py-2.5">
+                    <Link href="/dashboard/settings" className="cursor-pointer flex items-center gap-2">
+                      <Settings className="h-5 w-5" />
                       Settings
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => signOut({ callbackUrl: '/login' })}
-                    className="text-destructive cursor-pointer"
+                    className="text-destructive cursor-pointer text-base py-2.5"
                   >
-                    <LogOut className="mr-2 h-4 w-4" />
+                    <LogOut className="h-5 w-5 mr-2" />
                     Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>

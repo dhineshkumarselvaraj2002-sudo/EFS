@@ -39,7 +39,17 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { id, status } = body
+    const { id, status, markAll } = body
+
+    if (markAll && status) {
+      // Mark all alerts as read
+      const result = await prisma.alert.updateMany({
+        where: { status: 'NEW' },
+        data: { status: status as AlertStatus },
+      })
+
+      return NextResponse.json({ count: result.count, message: 'All alerts marked as read' })
+    }
 
     if (!id || !status) {
       return NextResponse.json(

@@ -61,12 +61,14 @@ export async function GET(request: NextRequest) {
       }
 
       if (!acc[key]) {
-        acc[key] = { IN: 0, OUT: 0, TRANSFER: 0 }
+        acc[key] = { IN: 0, OUT: 0, TRANSFER: 0, RETURN: 0, USAGE: 0 }
       }
 
-      acc[key][tx.type] += tx.quantity
+      if (tx.type in acc[key]) {
+        acc[key][tx.type as keyof typeof acc[key]] += tx.quantity
+      }
       return acc
-    }, {} as Record<string, { IN: number; OUT: number; TRANSFER: number }>)
+    }, {} as Record<string, { IN: number; OUT: number; TRANSFER: number; RETURN: number; USAGE: number }>)
 
     // Convert to array format for charts
     const chartData = Object.entries(grouped).map(([period, data]) => ({
@@ -74,6 +76,8 @@ export async function GET(request: NextRequest) {
       stockIn: data.IN,
       stockOut: data.OUT,
       transfers: data.TRANSFER,
+      returns: data.RETURN,
+      usage: data.USAGE,
     }))
 
     return NextResponse.json(chartData)
