@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface LowStockItem {
   productId: string
@@ -26,19 +26,52 @@ export function LowStockAlert() {
     refetchInterval: 30000, // Check every 30 seconds
   })
 
+  // Track which alerts have already been shown to prevent duplicates
+  const shownAlertsRef = useRef<Set<string>>(new Set())
+
   // Show toast notifications for new low stock items
   useEffect(() => {
     if (lowStockItems && lowStockItems.length > 0) {
       lowStockItems.forEach((item) => {
-        const message = item.warehouseName
-          ? `${item.productName} in ${item.warehouseName}: ${item.currentQuantity} units (min: ${item.minStockLevel})`
-          : `${item.productName}: ${item.currentQuantity} units (min: ${item.minStockLevel})`
+        // Create a unique key for this alert (productId + warehouseId if available)
+        const alertKey = item.warehouseName 
+          ? `${item.productId}-${item.warehouseName}`
+          : item.productId
+        
+        // Only show toast if we haven't shown this alert before
+        if (!shownAlertsRef.current.has(alertKey)) {
+          const message = item.warehouseName
+            ? `${item.productName} in ${item.warehouseName}: ${item.currentQuantity} units (min: ${item.minStockLevel})`
+            : `${item.productName}: ${item.currentQuantity} units (min: ${item.minStockLevel})`
 
-        toast.warning('Low Stock Alert', {
-          description: message,
-          duration: 5000,
-        })
+          toast.warning('Low Stock Alert', {
+            description: message,
+            duration: 5000,
+          })
+          
+          // Mark this alert as shown
+          shownAlertsRef.current.add(alertKey)
+        }
       })
+      
+      // Clean up alerts that are no longer in the list (stock has been replenished)
+      const currentKeys = new Set(
+        lowStockItems.map(item => 
+          item.warehouseName 
+            ? `${item.productId}-${item.warehouseName}`
+            : item.productId
+        )
+      )
+      
+      // Remove keys that are no longer in the current list
+      shownAlertsRef.current.forEach((key) => {
+        if (!currentKeys.has(key)) {
+          shownAlertsRef.current.delete(key)
+        }
+      })
+    } else {
+      // If no low stock items, clear all shown alerts
+      shownAlertsRef.current.clear()
     }
   }, [lowStockItems])
 

@@ -100,10 +100,10 @@ export default function DashboardLayout({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={async () => {
-                    toast.success('Logging out...', { duration: 1000 })
+                    toast.success('Logout successful')
                     setTimeout(() => {
                       signOut({ callbackUrl: '/login' })
-                    }, 500)
+                    }, 2000)
                   }}
                   className="text-destructive cursor-pointer"
                 >

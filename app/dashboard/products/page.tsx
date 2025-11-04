@@ -27,9 +27,11 @@ import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, Pencil, Trash2, PackageSearch, Package } from 'lucide-react'
+import { Plus, Pencil, Trash2, PackageSearch, Package, Download } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast as sonnerToast } from 'sonner'
+import * as XLSX from 'xlsx'
+import { format } from 'date-fns'
 import {
   Empty,
   EmptyContent,
@@ -301,6 +303,59 @@ export default function ProductsPage() {
     setCurrentPage(1)
   }, [filters])
 
+  const exportToExcel = async () => {
+    try {
+      // Fetch all products (not paginated)
+      const res = await fetch('/api/products?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch products')
+      const allData = await res.json()
+      const allProducts = allData?.products || []
+
+      if (allProducts.length === 0) {
+        alert('No products to export')
+        return
+      }
+
+      // Calculate total stock for each product
+      const productsWithStock = allProducts.map((product: any) => {
+        const totalStock = inventory
+          ?.filter((inv: any) => inv.productId === product.id)
+          .reduce((sum: number, inv: any) => sum + inv.quantity, 0) || 0
+        
+        return {
+          ...product,
+          totalStock,
+        }
+      })
+
+      // Prepare data for Excel
+      const excelData = productsWithStock.map((product: any) => ({
+        'Name': product.name || '-',
+        'SKU': product.sku || '-',
+        'Category': product.category || '-',
+        'Unit': product.unit || '-',
+        'Stock Available': product.totalStock || 0,
+        'Min Stock Level': product.productSettings?.minStockLevel || 0,
+        'Safety Stock': product.productSettings?.safetyStock || 0,
+        'Lead Time (Days)': product.productSettings?.leadTimeDays || 0,
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Products')
+
+      // Generate filename with current date
+      const fileName = `products_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export products to Excel')
+    }
+  }
+
   return (
     <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
@@ -434,8 +489,14 @@ export default function ProductsPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-base text-muted-foreground">
-          {total} {total === 1 ? 'product' : 'products'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground">
+            {total} {total === 1 ? 'product' : 'products'}
+          </div>
         </div>
       </div>
 

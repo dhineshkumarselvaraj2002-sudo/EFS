@@ -28,9 +28,11 @@ import { TableSkeleton } from '@/components/skeleton-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, Pencil, Trash2, Warehouse as WarehouseIcon, Eye, Network } from 'lucide-react'
+import { Plus, Pencil, Trash2, Warehouse as WarehouseIcon, Eye, Network, Download } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
+import { format } from 'date-fns'
 import {
   Empty,
   EmptyContent,
@@ -222,6 +224,46 @@ export default function WarehousesPage() {
     setCurrentPage(1)
   }, [filters])
 
+  const exportToExcel = async () => {
+    try {
+      // Fetch all warehouses (not paginated)
+      const res = await fetch('/api/warehouses?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch warehouses')
+      const allData = await res.json()
+      const allWarehouses = allData?.warehouses || []
+
+      if (allWarehouses.length === 0) {
+        alert('No warehouses to export')
+        return
+      }
+
+      // Prepare data for Excel
+      const excelData = allWarehouses.map((warehouse: any) => ({
+        'Name': warehouse.name || '-',
+        'Location': warehouse.location || '-',
+        'Type': warehouse.type || '-',
+        'Status': warehouse.status || 'Active',
+        'Parent Warehouse': warehouse.parent?.name || '-',
+        'Inventory Items': warehouse._count?.inventory || 0,
+        'Child Warehouses': warehouse._count?.children || 0,
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Warehouses')
+
+      // Generate filename with current date
+      const fileName = `warehouses_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export warehouses to Excel')
+    }
+  }
+
   return (
     <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
@@ -344,8 +386,14 @@ export default function WarehousesPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-base text-muted-foreground">
-          {total} {total === 1 ? 'warehouse' : 'warehouses'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground">
+            {total} {total === 1 ? 'warehouse' : 'warehouses'}
+          </div>
         </div>
       </div>
 

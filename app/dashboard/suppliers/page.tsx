@@ -28,8 +28,9 @@ import { TableSkeleton } from '@/components/skeleton-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, Pencil, Trash2, Users, Package, Link as LinkIcon, ExternalLink } from 'lucide-react'
+import { Plus, Pencil, Trash2, Users, Package, Link as LinkIcon, ExternalLink, Download } from 'lucide-react'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 import {
   Empty,
   EmptyContent,
@@ -291,6 +292,46 @@ export default function SuppliersPage() {
     setCurrentPage(1)
   }, [filters])
 
+  const exportToExcel = async () => {
+    try {
+      // Fetch all suppliers (not paginated)
+      const res = await fetch('/api/suppliers?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch suppliers')
+      const allData = await res.json()
+      const allSuppliers = allData?.suppliers || []
+
+      if (allSuppliers.length === 0) {
+        alert('No suppliers to export')
+        return
+      }
+
+      // Prepare data for Excel
+      const excelData = allSuppliers.map((supplier: any) => ({
+        'Name': supplier.name || '-',
+        'Contact Person': supplier.contactPerson || '-',
+        'Phone': supplier.phone || '-',
+        'Email': supplier.email || '-',
+        'Address': supplier.address || '-',
+        'Linked Products': supplier.productSuppliers?.length || 0,
+        'Purchase Orders': supplier._count?.purchaseOrders || 0,
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Suppliers')
+
+      // Generate filename with current date
+      const fileName = `suppliers_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export suppliers to Excel')
+    }
+  }
+
   return (
     <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
@@ -369,8 +410,14 @@ export default function SuppliersPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-base text-muted-foreground">
-          {total} {total === 1 ? 'supplier' : 'suppliers'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground">
+            {total} {total === 1 ? 'supplier' : 'suppliers'}
+          </div>
         </div>
       </div>
 

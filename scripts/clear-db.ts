@@ -79,3 +79,4 @@ clearDatabase()
     process.exit(1)
   })
 
+

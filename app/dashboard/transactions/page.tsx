@@ -11,9 +11,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { PageBreadcrumb } from '@/components/page-breadcrumb'
-import { ArrowRightLeft } from 'lucide-react'
+import { ArrowRightLeft, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import {
   Empty,
   EmptyContent,
@@ -90,7 +92,7 @@ export default function TransactionsPage() {
 
   const filteredTransactions = useMemo(() => {
     if (!data?.transactions) return []
-    return data.transactions.filter((tx: any) => {
+    const filtered = data.transactions.filter((tx: any) => {
       // Search filter
       if (filters.search) {
         const searchLower = filters.search.toLowerCase()
@@ -111,6 +113,13 @@ export default function TransactionsPage() {
         if (filters.dateRange_to && txDate > filters.dateRange_to) return false
       }
       return true
+    })
+    
+    // Sort by date (timestamp) - newest first (descending order)
+    return filtered.sort((a: any, b: any) => {
+      const dateA = new Date(a.timestamp).getTime()
+      const dateB = new Date(b.timestamp).getTime()
+      return dateB - dateA // Descending order (newest first)
     })
   }, [data, filters])
 
@@ -175,6 +184,58 @@ export default function TransactionsPage() {
     return tx.destinationWarehouse?.name || tx.sourceWarehouse?.name || '-'
   }
 
+  const exportToExcel = async () => {
+    try {
+      // Fetch all transactions (not paginated)
+      const res = await fetch('/api/transactions?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch transactions')
+      const allData = await res.json()
+      const allTransactions = allData?.transactions || []
+
+      if (allTransactions.length === 0) {
+        alert('No transactions to export')
+        return
+      }
+
+      // Prepare data for Excel
+      const excelData = allTransactions.map((tx: any) => {
+        const fromDisplay = getFromDisplay(tx)
+        const toDisplay = getToDisplay(tx)
+        
+        return {
+          'Date': format(new Date(tx.timestamp), 'yyyy-MM-dd'),
+          'Time': format(new Date(tx.timestamp), 'HH:mm:ss'),
+          'Product': tx.product?.name || '-',
+          'Product SKU': tx.product?.sku || '-',
+          'Type': tx.type,
+          'Quantity': tx.quantity,
+          'From': fromDisplay,
+          'To': toDisplay,
+          'User Name': tx.user?.name || '-',
+          'User Email': tx.user?.email || '-',
+          'Reason': tx.reason || '-',
+          'Department': tx.department || '-',
+          'Source Warehouse': tx.sourceWarehouse?.name || '-',
+          'Destination Warehouse': tx.destinationWarehouse?.name || '-',
+        }
+      })
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Transactions')
+
+      // Generate filename with current date
+      const fileName = `transactions_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export transactions to Excel')
+    }
+  }
+
   return (
     <div className="space-y-8 md:space-y-10 w-full max-w-full overflow-x-hidden">
       <PageBreadcrumb />
@@ -195,8 +256,14 @@ export default function TransactionsPage() {
             onClear={() => setFilters({})}
           />
         </div>
-        <div className="text-base text-muted-foreground whitespace-nowrap">
-          {filteredTransactions.length} {filteredTransactions.length === 1 ? 'transaction' : 'transactions'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground whitespace-nowrap">
+            {filteredTransactions.length} {filteredTransactions.length === 1 ? 'transaction' : 'transactions'}
+          </div>
         </div>
       </div>
 
@@ -239,7 +306,10 @@ export default function TransactionsPage() {
                   {paginatedTransactions.map((tx: any) => (
                     <TableRow key={tx.id}>
                       <TableCell className="text-base whitespace-nowrap py-4 px-4">
-                        {format(new Date(tx.timestamp), 'PPp')}
+                        <div className="flex flex-col">
+                          <span>{format(new Date(tx.timestamp), 'PP')}</span>
+                          <span className="text-sm text-muted-foreground">{format(new Date(tx.timestamp), 'p')}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="font-medium text-base whitespace-nowrap py-4 px-4">{tx.product?.name}</TableCell>
                       <TableCell className="text-base whitespace-nowrap py-4 px-4">{getTypeBadge(tx.type)}</TableCell>

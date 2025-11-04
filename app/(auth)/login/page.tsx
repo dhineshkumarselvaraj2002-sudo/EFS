@@ -8,7 +8,7 @@ import { AlertCircle } from "lucide-react"
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { error?: string; callbackUrl?: string }
+  searchParams: Promise<{ error?: string; callbackUrl?: string }>
 }) {
   const session = await getServerSession(authOptions)
   
@@ -30,7 +30,8 @@ export default async function LoginPage({
     Default: 'An unexpected error occurred. Please try again.',
   }
 
-  const error = searchParams?.error
+  const params = await searchParams
+  const error = params?.error
   const errorMessage = error ? errorMessages[error] || errorMessages.Default : null
 
   return (

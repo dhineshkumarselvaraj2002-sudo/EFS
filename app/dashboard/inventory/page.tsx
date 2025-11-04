@@ -28,8 +28,9 @@ import { PageBreadcrumb } from '@/components/page-breadcrumb'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, ArrowRightLeft, Package, PackageSearch } from 'lucide-react'
+import { Plus, ArrowRightLeft, Package, PackageSearch, Download } from 'lucide-react'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 import { BatchExpiryBadge } from '@/components/batch-expiry-badge'
 import { Badge } from '@/components/ui/badge'
 import { TableSkeleton } from '@/components/skeleton-table'
@@ -224,11 +225,33 @@ export default function InventoryPage() {
       }
       return res.json()
     },
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] })
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
-      toast.success('Stock updated')
+      
+      // Get product and warehouse details for notification
+      const product = products?.find((p: any) => p.id === variables.productId)
+      const warehouse = warehouses?.find((w: any) => w.id === variables.warehouseId)
+      
+      const productName = product?.name || 'Product'
+      const warehouseName = warehouse?.name || 'Warehouse'
+      const quantity = variables.quantity
+      
+      if (variables.type === 'IN') {
+        toast.success('Stock In Successful', {
+          description: `${quantity} units of ${productName} added to ${warehouseName}`,
+          duration: 5000,
+        })
+      } else if (variables.type === 'OUT') {
+        toast.success('Stock Out Successful', {
+          description: `${quantity} units of ${productName} removed from ${warehouseName}`,
+          duration: 5000,
+        })
+      } else {
+        toast.success('Stock updated')
+      }
+      
       setIsStockDialogOpen(false)
       stockReset()
     },
@@ -465,6 +488,45 @@ export default function InventoryPage() {
       pusherClient.unsubscribe('inventory-updates')
     }
   }, [queryClient])
+
+  const exportToExcel = async () => {
+    try {
+      // Fetch all inventory (not paginated)
+      const res = await fetch('/api/inventory?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch inventory')
+      const allData = await res.json()
+      const allInventory = allData?.inventory || []
+
+      if (allInventory.length === 0) {
+        alert('No inventory to export')
+        return
+      }
+
+      // Prepare data for Excel
+      const excelData = allInventory.map((inv: any) => ({
+        'Product': inv.product?.name || '-',
+        'Product SKU': inv.product?.sku || '-',
+        'Warehouse': inv.warehouse?.name || '-',
+        'Quantity': inv.quantity || 0,
+        'Min Stock Level': inv.product?.productSettings?.minStockLevel || 0,
+        'Status': (inv.product?.productSettings?.minStockLevel || 0) > 0 && inv.quantity < (inv.product?.productSettings?.minStockLevel || 0) ? 'Low Stock' : 'OK',
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Inventory')
+
+      // Generate filename with current date
+      const fileName = `inventory_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export inventory to Excel')
+    }
+  }
 
   return (
     <div className="space-y-8 md:space-y-10 w-full max-w-full overflow-x-hidden">
@@ -826,8 +888,14 @@ export default function InventoryPage() {
             onClear={() => setFilters({})}
           />
         </div>
-        <div className="text-base text-muted-foreground whitespace-nowrap">
-          {total} {total === 1 ? 'item' : 'items'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground whitespace-nowrap">
+            {total} {total === 1 ? 'item' : 'items'}
+          </div>
         </div>
       </div>
 

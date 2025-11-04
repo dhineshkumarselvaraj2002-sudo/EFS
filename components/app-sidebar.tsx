@@ -41,6 +41,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { toast } from 'sonner'
 
 const navSections = [
   {
@@ -166,7 +167,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {session?.user && (
             <SidebarMenuItem>
               <SidebarMenuButton
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={async () => {
+                  toast.success('Logout successful')
+                  setTimeout(() => {
+                    signOut({ callbackUrl: '/login' })
+                  }, 2000)
+                }}
                 className="text-destructive text-base py-2.5 px-3"
               >
                 <LogOut className="h-5 w-5" />
@@ -212,7 +218,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    onClick={async () => {
+                      toast.success('Logout successful')
+                      setTimeout(() => {
+                        signOut({ callbackUrl: '/login' })
+                      }, 2000)
+                    }}
                     className="text-destructive cursor-pointer text-base py-2.5"
                   >
                     <LogOut className="h-5 w-5 mr-2" />

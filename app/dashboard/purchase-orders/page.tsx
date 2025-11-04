@@ -28,8 +28,9 @@ import { TableSkeleton } from '@/components/skeleton-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
-import { Plus, CheckCircle, ShoppingCart, Send } from 'lucide-react'
+import { Plus, CheckCircle, ShoppingCart, Send, Download } from 'lucide-react'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 import {
   Empty,
   EmptyContent,
@@ -141,27 +142,31 @@ export default function PurchaseOrdersPage() {
     }
   }, [selectedProductId, setValue])
 
-  const { data: warehouses } = useQuery({
+  const { data: warehousesData } = useQuery({
     queryKey: ['warehouses'],
     queryFn: async () => {
-      const res = await fetch('/api/warehouses')
+      const res = await fetch('/api/warehouses?limit=1000')
       if (!res.ok) throw new Error('Failed to fetch warehouses')
       return res.json()
     },
   })
 
-  const { data: inventory } = useQuery({
+  const { data: inventoryData } = useQuery({
     queryKey: ['inventory'],
     queryFn: async () => {
-      const res = await fetch('/api/inventory')
+      const res = await fetch('/api/inventory?limit=1000')
       if (!res.ok) throw new Error('Failed to fetch inventory')
       return res.json()
     },
   })
 
+  // Extract arrays from paginated responses (handle both old array format and new object format)
+  const warehouses = Array.isArray(warehousesData) ? warehousesData : (warehousesData?.warehouses || [])
+  const inventory = Array.isArray(inventoryData) ? inventoryData : (inventoryData?.inventory || [])
+
   // Filter warehouses for receive dialog - only show warehouses with low stock
   const availableWarehousesForReceive = useMemo(() => {
-    if (!receivingPO || !warehouses || !inventory) return []
+    if (!receivingPO || !warehouses || warehouses.length === 0 || !inventory) return []
     
     const productId = receivingPO.productId
     const product = products?.find((p: any) => p.id === productId)
@@ -366,6 +371,48 @@ export default function PurchaseOrdersPage() {
     setCurrentPage(1)
   }, [filters])
 
+  const exportToExcel = async () => {
+    try {
+      // Fetch all purchase orders (not paginated)
+      const res = await fetch('/api/purchase-orders?limit=10000')
+      if (!res.ok) throw new Error('Failed to fetch purchase orders')
+      const allData = await res.json()
+      const allOrders = allData?.purchaseOrders || []
+
+      if (allOrders.length === 0) {
+        alert('No purchase orders to export')
+        return
+      }
+
+      // Prepare data for Excel
+      const excelData = allOrders.map((order: any) => ({
+        'Date': format(new Date(order.createdAt), 'yyyy-MM-dd'),
+        'Time': format(new Date(order.createdAt), 'HH:mm:ss'),
+        'Supplier': order.supplier?.name || '-',
+        'Product': order.product?.name || '-',
+        'Product SKU': order.product?.sku || '-',
+        'Quantity': order.quantity,
+        'Unit Price': order.unitPrice ? `$${order.unitPrice.toFixed(2)}` : '-',
+        'Total': order.unitPrice ? `$${(order.unitPrice * order.quantity).toFixed(2)}` : '-',
+        'Status': order.status,
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = XLSX.utils.json_to_sheet(excelData)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Purchase Orders')
+
+      // Generate filename with current date
+      const fileName = `purchase_orders_${format(new Date(), 'yyyy-MM-dd_HH-mm-ss')}.xlsx`
+
+      // Write and download
+      XLSX.writeFile(workbook, fileName)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      alert('Failed to export purchase orders to Excel')
+    }
+  }
+
   return (
     <div className="space-y-8 md:space-y-10">
       <PageBreadcrumb />
@@ -469,8 +516,14 @@ export default function PurchaseOrdersPage() {
           onChange={(key, value) => setFilters(prev => ({ ...prev, [key]: value }))}
           onClear={() => setFilters({})}
         />
-        <div className="text-base text-muted-foreground">
-          {total} {total === 1 ? 'order' : 'orders'}
+        <div className="flex items-center gap-4">
+          <Button onClick={exportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="text-base text-muted-foreground">
+            {total} {total === 1 ? 'order' : 'orders'}
+          </div>
         </div>
       </div>
 
